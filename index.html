@@ -465,10 +465,10 @@ function show_infobox() {
         // status 0 means it never got there (offline, or no answer within 15 seconds).
         window.wordleFetchResults = {};
 
-        function wordleFetch(id, url, headers, body) {
+        function wordleFetch(id, url, headers, body, method) {
             var stop = window.AbortController ? new AbortController() : null;
             var timer = setTimeout(function () { if (stop) stop.abort(); }, 15000);
-            fetch(url, { method: "POST", headers: JSON.parse(headers), body: body, cache: "no-store",
+            fetch(url, { method: method || "POST", headers: JSON.parse(headers), body: body, cache: "no-store",
                          credentials: "omit", signal: stop ? stop.signal : undefined })
                 .then(function (r) { return r.text().then(function (t) { return { status: r.status, text: t }; }); })
                 .catch(function () { return { status: 0, text: "" }; })
@@ -483,6 +483,155 @@ function show_infobox() {
             if (answer === undefined) return "";
             delete window.wordleFetchResults[id];
             return answer;
+        }
+
+        // Sign-in form (sync.py auth_form, drawn by gui.py publish_auth_form). A real HTML <form> over the
+        // canvas, so Safari can fill in the email, a saved password (and offer a strong new one), and the
+        // 6-digit code from Mail. The game shows it with wordleAuthShow(JSON spec) and reads what the
+        // player did with wordleAuthTake() (JSON {action, email, password, code}, or "").
+        window.wordleAuthEvent = "";
+        var wordleAuth = null;  // {box, mode, fields...} while the form is up
+
+        function wordleAuthTake() {
+            var e = window.wordleAuthEvent;
+            window.wordleAuthEvent = "";
+            return e || "";
+        }
+
+        function wordleAuthHide() {
+            if (wordleAuth) wordleAuth.box.remove();
+            wordleAuth = null;
+        }
+
+        function wordleAuthShow(specText) {
+            var spec = JSON.parse(specText);
+            if (!wordleAuth || wordleAuth.mode !== spec.mode || wordleAuth.purpose !== spec.purpose) wordleAuthBuild(spec);
+            var a = wordleAuth;
+            a.error.textContent = spec.error || "";
+            a.note.textContent = spec.note || "";
+            a.submit.disabled = !!spec.busy;
+            a.submit.textContent = spec.busy ? "One moment..." : a.label;
+            if (a.email && spec.email && !a.email.value) a.email.value = spec.email;
+        }
+
+        function wordleAuthBuild(spec) {
+            wordleAuthHide();
+            if (!wordleAuth) window.wordleAuthEvent = "";  // (nothing left over from an earlier form)
+            var mode = spec.mode, reset = spec.purpose === "reset";
+            var titles = {signin: "Sign in to save your stats", signup: "Create an account",
+                          code: reset ? "Reset your password" : "Email me a code", verify: "Enter the code",
+                          newpassword: "Choose a new password"};
+            var intros = {signin: "Your games stay safe in your account, so a new phone or a cleared browser gets " +
+                              "them back. Playing without an account still works.",
+                          signup: "Use an email you can open on this phone: we'll send a 6-digit code to confirm it.",
+                          code: reset ? "We'll email you a 6-digit code. Then you can choose a new password." :
+                              "No password needed: we'll email you a 6-digit code. (This makes an account if you " +
+                              "don't have one.)",
+                          verify: "", newpassword: "Pick a new password for " + (spec.email || "your account") + "."};
+            var labels = {signin: "Sign in", signup: "Create account", code: "Email me a code", verify: "Continue",
+                          newpassword: "Save password"};
+            var actions = {signin: "signin", signup: "signup", code: "send_code", verify: "verify",
+                           newpassword: "set_password"};
+            var box = document.createElement("div");
+            box.id = "wordle-auth";
+            box.style.cssText = "position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;" +
+                "background:rgba(0,0,0,0.6);font:16px -apple-system,Helvetica,sans-serif;touch-action:auto;overflow:auto";
+            // Keep typing in the form away from the game (which listens to the whole page).
+            ["keydown", "keyup", "keypress"].forEach(function (type) {
+                box.addEventListener(type, function (e) { e.stopPropagation(); });
+            });
+            ["touchstart", "touchend", "click"].forEach(function (type) {
+                box.addEventListener(type, function (e) { e.stopPropagation(); });
+            });
+            var form = document.createElement("form");
+            form.autocomplete = "on";
+            form.style.cssText = "background:#212636;color:#eceff4;border-radius:16px;padding:20px;width:min(88vw,420px);" +
+                "box-sizing:border-box;margin:16px";
+            function text(content, css) {
+                var d = document.createElement("div");
+                d.textContent = content;
+                d.style.cssText = css;
+                form.appendChild(d);
+                return d;
+            }
+            function input(type, name, autocomplete, placeholder, extra) {
+                var i = document.createElement("input");
+                i.type = type; i.name = name; i.autocomplete = autocomplete; i.placeholder = placeholder;
+                i.style.cssText = "display:block;width:100%;box-sizing:border-box;margin:8px 0;padding:12px;font:16px " +
+                    "-apple-system,Helvetica,sans-serif;background:#151924;color:#eceff4;border:1px solid #323850;" +
+                    "border-radius:10px;touch-action:auto";
+                for (var k in (extra || {})) i.setAttribute(k, extra[k]);
+                form.appendChild(i);
+                return i;
+            }
+            function link(label, action) {
+                var b = document.createElement("button");
+                b.type = "button";
+                b.textContent = label;
+                b.style.cssText = "display:block;width:100%;margin-top:8px;padding:10px;border:0;border-radius:10px;" +
+                    "font:15px -apple-system,Helvetica,sans-serif;color:#eceff4;background:#323950";
+                b.addEventListener("click", function () { post(action); });
+                form.appendChild(b);
+            }
+            text(titles[mode], "font-weight:bold;font-size:19px;margin-bottom:6px");
+            if (intros[mode]) text(intros[mode], "color:#a7aec4;font-size:14px;margin-bottom:6px");
+            var a = {box: box, mode: mode, purpose: spec.purpose, label: labels[mode]};
+            if (mode === "verify" || mode === "newpassword") {
+                // The account's email as the username, so the password manager files the code/password under it.
+                a.email = input("email", "email", "username", "Email", {readonly: "readonly"});
+                a.email.value = spec.email || "";
+                a.email.style.opacity = "0.7";
+            } else {
+                a.email = input("email", "email", "username", "Email", {autocapitalize: "off", spellcheck: "false",
+                                                                      required: "required"});
+                a.email.value = spec.email || "";
+            }
+            if (mode === "signin") a.password = input("password", "password", "current-password", "Password");
+            if (mode === "signup" || mode === "newpassword") {
+                a.password = input("password", "password", "new-password", "New password (6 or more characters)",
+                                   {minlength: "6"});
+            }
+            if (mode === "verify") {
+                a.code = input("text", "code", "one-time-code", "6-digit code",
+                               {inputmode: "numeric", pattern: "[0-9]*", maxlength: "8"});
+            }
+            a.error = text("", "color:#ee9664;font-size:14px;margin:6px 0;min-height:0");
+            a.note = text("", "color:#60c891;font-size:14px;margin:6px 0;min-height:0");
+            a.submit = document.createElement("button");
+            a.submit.type = "submit";
+            a.submit.textContent = a.label;
+            a.submit.style.cssText = "display:block;width:100%;margin-top:8px;padding:13px;border:0;border-radius:10px;" +
+                "font:bold 17px -apple-system,Helvetica,sans-serif;color:#fff;background:#2ea06b";
+            form.appendChild(a.submit);
+            if (mode === "signin") {
+                link("Email me a code instead", "mode:code");
+                link("Forgot password?", "mode:reset");
+                link("Create an account", "mode:signup");
+            } else if (mode === "signup") {
+                link("I already have an account", "mode:signin");
+            } else if (mode === "code") {
+                link("Use my password instead", "mode:signin");
+            } else if (mode === "verify") {
+                link("Send a new code", "resend");
+                if (spec.purpose === "signup") link("Used the link in the email? Sign in", "mode:signin");
+                link("Use a different email", spec.purpose === "signup" ? "mode:signup" : "mode:code");
+            }
+            link("Cancel", "cancel");
+            function post(action) {
+                window.wordleAuthEvent = JSON.stringify({action: action, email: a.email ? a.email.value : "",
+                    password: a.password ? a.password.value : "", code: a.code ? a.code.value : ""});
+            }
+            form.addEventListener("submit", function (e) {
+                e.preventDefault();
+                post(actions[mode]);
+            });
+            box.appendChild(form);
+            document.body.appendChild(box);
+            wordleAuth = a;
+            setTimeout(function () {
+                var first = mode === "verify" ? a.code : (a.email && !a.email.value ? a.email : a.password || a.email);
+                if (first) first.focus();
+            }, 50);
         }
 
         // The player's local date for the daily puzzle (gui.local_date), from the phone's own clock.

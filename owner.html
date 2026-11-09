@@ -8,7 +8,7 @@
 <!--
   Stats across every player, for the game's owner only (published next to the game by
   web/build_web.py). The page itself is public, like the game, and holds no secrets: it signs you
-  in with a link emailed by Supabase, and the database's wordle_owner_stats() only answers users
+  in with a password or a 6-digit emailed code, and the database's wordle_owner_stats() only answers users
   listed in wordle.owners (server/schema.sql). Everyone else sees "not an owner" and no data.
 -->
 <style>
@@ -103,18 +103,28 @@
 <main>
   <div id="signin" class="card signin" hidden>
     <h1 style="margin:0;font-size:20px">Wordle owner stats</h1>
-    <p class="muted" style="margin:0">Only for the game's owner. Enter your email and Supabase sends you a sign-in link.</p>
-    <form id="signin-form" style="display:grid;gap:10px">
-      <input id="email" type="email" autocomplete="email" placeholder="you@example.com" required>
-      <button class="primary" type="submit">Email me a sign-in link</button>
+    <p class="muted" style="margin:0">Only for the game's owner. Sign in with the owner account's email and password,
+      or get a 6-digit code by email.</p>
+    <form id="signin-form" style="display:grid;gap:10px" autocomplete="on">
+      <input id="email" name="email" type="email" autocomplete="username" placeholder="you@example.com" required
+             autocapitalize="off" spellcheck="false">
+      <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Password">
+      <button class="primary" type="submit" id="signin-button">Sign in</button>
+      <button type="button" id="code-button">Email me a code instead</button>
+    </form>
+    <form id="code-form" style="display:grid;gap:10px" hidden>
+      <input id="code" name="code" type="text" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]*"
+             maxlength="8" placeholder="6-digit code">
+      <button class="primary" type="submit">Continue</button>
     </form>
     <div id="signin-status" class="small"></div>
   </div>
 
   <div id="denied" class="card signin" hidden>
-    <h1 style="margin:0;font-size:20px">Not an owner</h1>
-    <p class="muted" style="margin:0">Signed in as <b id="denied-email"></b>, but this account isn't on the owners list,
-      so no stats are shown. To add it, run this in the Supabase SQL editor:</p>
+    <h1 style="margin:0;font-size:20px">Not an owner account</h1>
+    <p class="muted" style="margin:0">Signed in as <b id="denied-email"></b>, but this email isn't an owner account,
+      so no stats are shown. (Owners sign in with the email that was made owner, which may not be the one your phone
+      suggests.) To make this email an owner too, run this in the Supabase SQL editor:</p>
     <code id="denied-sql"></code>
     <button id="signout-2">Sign out</button>
   </div>
@@ -325,15 +335,46 @@
     render(s);
   }
 
+  function say(text, ok) {
+    var status = $("signin-status");
+    status.className = "small " + (ok === true ? "ok" : ok === false ? "error" : "");
+    status.textContent = text;
+  }
+  function plain(error) {
+    // Supabase's messages in plain words.
+    var m = (error && (error.message || error.msg)) || "";
+    if (/invalid login credentials/i.test(m)) return "Wrong email or password, or there's no account for this email. " +
+      "No password yet? Use Email me a code.";
+    if (/signups? not allowed|otp_disabled|user not found/i.test(m)) return "There's no account for this email. " +
+      "Owners sign in with the email that was made owner.";
+    if (/expired|invalid/i.test(m)) return "That code didn't work or has expired. Send a new one.";
+    if (/rate limit|too many/i.test(m)) return "Too many emails just now. Wait a minute and try again.";
+    if (/not confirmed/i.test(m)) return "This email isn't confirmed yet. Use Email me a code.";
+    return m || "That didn't work. Try again.";
+  }
   $("signin-form").addEventListener("submit", async function (event) {
     event.preventDefault();
-    var status = $("signin-status");
-    status.className = "small";
-    status.textContent = "Sending...";
-    var result = await db.auth.signInWithOtp({ email: $("email").value.trim(),
-      options: { emailRedirectTo: location.origin + location.pathname } });
-    if (result.error) { status.className = "small error"; status.textContent = result.error.message; }
-    else { status.className = "small ok"; status.textContent = "Check your email and open the link on this device."; }
+    if (!$("password").value) { say("Type your password, or use Email me a code.", false); return; }
+    say("Signing in...");
+    var result = await db.auth.signInWithPassword({ email: $("email").value.trim(), password: $("password").value });
+    if (result.error) say(plain(result.error), false);
+  });
+  $("code-button").addEventListener("click", async function () {
+    var email = $("email").value.trim();
+    if (!email) { say("Type your email first.", false); return; }
+    say("Sending a code...");
+    // Owners only: never make a new account from here.
+    var result = await db.auth.signInWithOtp({ email: email, options: { shouldCreateUser: false } });
+    if (result.error) { say(plain(result.error), false); return; }
+    $("code-form").hidden = false;
+    say("We emailed a 6-digit code to " + email + ". Type it below.", true);
+    $("code").focus();
+  });
+  $("code-form").addEventListener("submit", async function (event) {
+    event.preventDefault();
+    say("Checking...");
+    var result = await db.auth.verifyOtp({ email: $("email").value.trim(), token: $("code").value.trim(), type: "email" });
+    if (result.error) say(plain(result.error), false);
   });
   function signOut() { db.auth.signOut().then(function () { show("signin"); }); }
   $("signout").addEventListener("click", signOut);
