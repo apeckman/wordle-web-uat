@@ -331,7 +331,58 @@ function show_infobox() {
         // sheet or write to the clipboard during the tap or click itself, and Python sees a tap a frame
         // later, so the game tells this page where its Share buttons are and this click handler shares.
         window.wordleShareTargets = "";  // JSON [[x, y, width, height, text], ...] in canvas pixels
-        window.wordleShareStatus = "";   // "shared", "cancelled", "copied" or "failed", for the game to show
+        window.wordleShareStatus = "";   // "shared", "cancelled", "copied" or "shown", for the game to show
+
+        function wordleShowText(text) {
+            // Last resort when the browser refuses both the share sheet and the clipboard: show the
+            // text in a box with a real Copy button (a tap on a real button always counts).
+            var old = document.getElementById("wordle-share-box");
+            if (old) old.remove();
+            var box = document.createElement("div");
+            box.id = "wordle-share-box";
+            box.style.cssText = "position:fixed;inset:0;z-index:1000;display:flex;align-items:center;" +
+                "justify-content:center;background:rgba(0,0,0,0.6);font:16px -apple-system,Helvetica,sans-serif";
+            var panel = document.createElement("div");
+            panel.style.cssText = "background:#212636;color:#eceff4;border-radius:16px;padding:18px;width:min(88vw,420px)";
+            var title = document.createElement("div");
+            title.textContent = "Copy your result";
+            title.style.cssText = "font-weight:bold;margin-bottom:10px";
+            var area = document.createElement("textarea");
+            area.value = text;
+            area.readOnly = true;
+            area.rows = Math.min(10, text.split("\n").length + 1);
+            area.style.cssText = "width:100%;box-sizing:border-box;font:16px monospace;background:#151924;color:#eceff4;" +
+                "border:1px solid #323850;border-radius:10px;padding:10px;resize:none;touch-action:auto";
+            var row = document.createElement("div");
+            row.style.cssText = "display:flex;gap:10px;margin-top:12px";
+            function button(label, primary, action) {
+                var b = document.createElement("button");
+                b.textContent = label;
+                b.style.cssText = "flex:1;padding:12px;border:0;border-radius:10px;font:bold 16px -apple-system,Helvetica,sans-serif;" +
+                    "color:#eceff4;background:" + (primary ? "#2ea06b" : "#323950");
+                b.addEventListener("click", action);
+                row.appendChild(b);
+                return b;
+            }
+            var copy = button("Copy", true, function () {
+                area.focus();
+                area.setSelectionRange(0, text.length);
+                var done = function () { copy.textContent = "Copied!"; };
+                var ok = false;
+                try { ok = document.execCommand("copy"); } catch (e) {}
+                if (ok) done();
+                else if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, function () {
+                    copy.textContent = "Select the text and copy it";
+                });
+            });
+            button("Done", false, function () { box.remove(); });
+            panel.appendChild(title);
+            panel.appendChild(area);
+            panel.appendChild(row);
+            box.appendChild(panel);
+            document.body.appendChild(box);
+            window.wordleShareStatus = "shown";
+        }
 
         function wordleCopy(text) {
             function fallback() {
@@ -344,7 +395,8 @@ function show_infobox() {
                 var copied = false;
                 try { copied = document.execCommand("copy"); } catch (e) {}
                 document.body.removeChild(area);
-                window.wordleShareStatus = copied ? "copied" : "failed";
+                if (copied) window.wordleShareStatus = "copied";
+                else wordleShowText(text);
             }
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 navigator.clipboard.writeText(text).then(function () { window.wordleShareStatus = "copied"; }, fallback);
@@ -368,21 +420,44 @@ function show_infobox() {
             }
         }
 
-        document.addEventListener("click", function (event) {
+        function wordleShareAt(clientX, clientY) {
+            // The text of the Share button at this point on the page, or null.
             var targets;
-            try { targets = JSON.parse(window.wordleShareTargets || "[]"); } catch (e) { return; }
+            try { targets = JSON.parse(window.wordleShareTargets || "[]"); } catch (e) { return null; }
             var canvas = document.getElementById("canvas");
-            if (!targets.length || !canvas) return;
+            if (!targets.length || !canvas) return null;
             var box = canvas.getBoundingClientRect();
-            var x = (event.clientX - box.left) * canvas.width / box.width;
-            var y = (event.clientY - box.top) * canvas.height / box.height;
+            var x = (clientX - box.left) * canvas.width / box.width;
+            var y = (clientY - box.top) * canvas.height / box.height;
             for (var i = 0; i < targets.length; i++) {
                 var t = targets[i];
-                if (x >= t[0] && x < t[0] + t[2] && y >= t[1] && y < t[1] + t[3]) {
-                    wordleShareText(t[4]);
-                    return;
-                }
+                if (x >= t[0] && x < t[0] + t[2] && y >= t[1] && y < t[1] + t[3]) return t[4];
             }
+            return null;
+        }
+
+        // Phones: act on the finger lifting. iPhone Safari sends no "click" for taps on a plain
+        // element like the game's canvas, so a click listener alone never fires there. The touch must
+        // start and end on the same button (a drag that ends on it doesn't count).
+        var wordleTouchStart = null, wordleTouchHandled = 0;
+        document.addEventListener("touchstart", function (event) {
+            var touch = event.touches && event.touches[0];
+            wordleTouchStart = touch ? wordleShareAt(touch.clientX, touch.clientY) : null;
+        }, { capture: true, passive: true });
+        document.addEventListener("touchend", function (event) {
+            var touch = event.changedTouches && event.changedTouches[0];
+            var text = touch ? wordleShareAt(touch.clientX, touch.clientY) : null;
+            if (text !== null && text === wordleTouchStart) {
+                wordleTouchHandled = Date.now();
+                wordleShareText(text);
+            }
+            wordleTouchStart = null;
+        }, { capture: true, passive: true });
+        // Mouse and trackpad.
+        document.addEventListener("click", function (event) {
+            if (Date.now() - wordleTouchHandled < 1000) return;  // the same tap, already shared
+            var text = wordleShareAt(event.clientX, event.clientY);
+            if (text !== null) wordleShareText(text);
         }, true);
 
         // The player's local date for the daily puzzle (gui.local_date), from the phone's own clock.
