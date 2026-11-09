@@ -327,6 +327,72 @@ function show_infobox() {
     </style>
 
     <script>
+        // Sharing results (gui.py publish_share_targets / poll_share). Browsers only open the share
+        // sheet or write to the clipboard during the tap or click itself, and Python sees a tap a frame
+        // later, so the game tells this page where its Share buttons are and this click handler shares.
+        window.wordleShareTargets = "";  // JSON [[x, y, width, height, text], ...] in canvas pixels
+        window.wordleShareStatus = "";   // "shared", "cancelled", "copied" or "failed", for the game to show
+
+        function wordleCopy(text) {
+            function fallback() {
+                var area = document.createElement("textarea");
+                area.value = text;
+                area.setAttribute("readonly", "");
+                area.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+                document.body.appendChild(area);
+                area.select();
+                var copied = false;
+                try { copied = document.execCommand("copy"); } catch (e) {}
+                document.body.removeChild(area);
+                window.wordleShareStatus = copied ? "copied" : "failed";
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function () { window.wordleShareStatus = "copied"; }, fallback);
+            } else {
+                fallback();
+            }
+        }
+
+        function wordleShareText(text) {
+            // Phones get the share sheet (Messages, WhatsApp...); computers copy to the clipboard.
+            var phone = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+            if (phone && navigator.share) {
+                navigator.share({ text: text }).then(function () {
+                    window.wordleShareStatus = "shared";
+                }, function (error) {
+                    if (error && error.name === "AbortError") window.wordleShareStatus = "cancelled";
+                    else wordleCopy(text);
+                });
+            } else {
+                wordleCopy(text);
+            }
+        }
+
+        document.addEventListener("click", function (event) {
+            var targets;
+            try { targets = JSON.parse(window.wordleShareTargets || "[]"); } catch (e) { return; }
+            var canvas = document.getElementById("canvas");
+            if (!targets.length || !canvas) return;
+            var box = canvas.getBoundingClientRect();
+            var x = (event.clientX - box.left) * canvas.width / box.width;
+            var y = (event.clientY - box.top) * canvas.height / box.height;
+            for (var i = 0; i < targets.length; i++) {
+                var t = targets[i];
+                if (x >= t[0] && x < t[0] + t[2] && y >= t[1] && y < t[1] + t[3]) {
+                    wordleShareText(t[4]);
+                    return;
+                }
+            }
+        }, true);
+
+        // The player's local date for the daily puzzle (gui.local_date), from the phone's own clock.
+        function wordleToday() {
+            var d = new Date();
+            return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+        }
+    </script>
+
+    <script>
         // Offline cache (web/sw.js): repeat visits load from the phone and work without internet.
         // It isn't in local test builds (the register just fails there).
         if ("serviceWorker" in navigator) {
