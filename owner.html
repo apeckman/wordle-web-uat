@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Wordle Owner Stats</title>
+<!--
+  Stats across every player, for the game's owner only (published next to the game by
+  web/build_web.py). The page itself is public, like the game, and holds no secrets: it signs you
+  in with a link emailed by Supabase, and the database's wordle_owner_stats() only answers users
+  listed in wordle.owners (server/schema.sql). Everyone else sees "not an owner" and no data.
+-->
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f4f4f2;
+    --surface: #fcfcfb;
+    --border: #e2e1dc;
+    --text: #0b0b0b;
+    --text-2: #52514e;
+    --text-3: #7a7974;
+    --accent: #2a78d6;      /* the one data series (reference palette slot 1) */
+    --good: #1d7f4e;
+    --bad: #b3261e;
+    --grid: #ecebe6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #121211;
+      --surface: #1a1a19;
+      --border: #2e2e2b;
+      --text: #f0efec;
+      --text-2: #c3c2b7;
+      --text-3: #8f8e86;
+      --accent: #3987e5;
+      --good: #4cc38a;
+      --bad: #f2827b;
+      --grid: #262624;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --border: #2e2e2b; --text: #f0efec; --text-2: #c3c2b7;
+    --text-3: #8f8e86; --accent: #3987e5; --good: #4cc38a; --bad: #f2827b; --grid: #262624;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 20px; }
+  header h1 { font-size: 22px; margin: 0; flex: 1; }
+  .muted { color: var(--text-2); }
+  .small { font-size: 13px; color: var(--text-3); }
+  button, input {
+    font: inherit; border-radius: 8px; border: 1px solid var(--border); background: var(--surface);
+    color: var(--text); padding: 8px 14px;
+  }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  input { min-width: 0; width: 100%; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .signin { max-width: 420px; margin: 12vh auto 0; display: grid; gap: 12px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile .value { font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .tile .label { font-size: 13px; color: var(--text-2); }
+  section { margin-top: 16px; }
+  section h2 { font-size: 16px; margin: 0 0 4px; }
+  section .row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  section .row .grow { flex: 1; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .03em; }
+  td.num, th.num { text-align: right; }
+  .word { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; }
+  .dist { display: inline-flex; align-items: flex-end; gap: 2px; height: 22px; vertical-align: middle; }
+  .dist span { width: 8px; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 1px; }
+  .chart { position: relative; }
+  .chart svg { display: block; width: 100%; height: 220px; }
+  .chart .bar { fill: var(--accent); }
+  .chart .hit { fill: transparent; }
+  .chart .hit:hover + .bar, .chart .bar.on { opacity: .75; }
+  .chart .axis { fill: var(--text-3); font-size: 11px; }
+  .chart .gridline { stroke: var(--grid); stroke-width: 1; }
+  .tip {
+    position: absolute; pointer-events: none; background: var(--text); color: var(--surface);
+    font-size: 12px; padding: 6px 8px; border-radius: 6px; transform: translate(-50%, -110%); white-space: nowrap;
+    display: none;
+  }
+  .error { color: var(--bad); }
+  .ok { color: var(--good); }
+  code { font-size: 12px; background: var(--bg); padding: 2px 4px; border-radius: 4px; word-break: break-all; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div id="signin" class="card signin" hidden>
+    <h1 style="margin:0;font-size:20px">Wordle owner stats</h1>
+    <p class="muted" style="margin:0">Only for the game's owner. Enter your email and Supabase sends you a sign-in link.</p>
+    <form id="signin-form" style="display:grid;gap:10px">
+      <input id="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+      <button class="primary" type="submit">Email me a sign-in link</button>
+    </form>
+    <div id="signin-status" class="small"></div>
+  </div>
+
+  <div id="denied" class="card signin" hidden>
+    <h1 style="margin:0;font-size:20px">Not an owner</h1>
+    <p class="muted" style="margin:0">Signed in as <b id="denied-email"></b>, but this account isn't on the owners list,
+      so no stats are shown. To add it, run this in the Supabase SQL editor:</p>
+    <code id="denied-sql"></code>
+    <button id="signout-2">Sign out</button>
+  </div>
+
+  <div id="dash" hidden>
+    <header>
+      <h1>Wordle owner stats</h1>
+      <span class="small" id="updated"></span>
+      <button id="refresh">Refresh</button>
+      <button id="signout">Sign out</button>
+    </header>
+    <p class="small" style="margin-top:-8px">Real players only (the website and the Mac app); UAT test games are left out
+      except in the UAT count. Daily puzzle results count games finished on the puzzle's own day.</p>
+    <div class="tiles" id="tiles"></div>
+
+    <section class="card">
+      <div class="row"><h2 class="grow">Players per day</h2>
+        <button id="ppd-toggle" type="button">Show table</button></div>
+      <div class="chart" id="ppd-chart"><svg id="ppd-svg" role="img" aria-label="Players per day, last 60 days"></svg>
+        <div class="tip" id="ppd-tip"></div></div>
+      <div class="scroll" id="ppd-table" hidden></div>
+    </section>
+
+    <section class="card">
+      <div class="row"><h2 class="grow">Daily puzzles</h2><span class="small">bars: wins by guesses used</span></div>
+      <div class="scroll" id="daily"></div>
+    </section>
+
+    <section class="card">
+      <div class="row"><h2 class="grow">Hardest words</h2><span class="small">answers with 3+ games, daily and practice</span></div>
+      <div class="scroll" id="words"></div>
+    </section>
+
+    <section class="card">
+      <div class="row"><h2 class="grow">Hint use</h2></div>
+      <div class="scroll" id="hints"></div>
+    </section>
+
+    <section class="card">
+      <div class="row"><h2 class="grow">Opening words</h2></div>
+      <div class="scroll" id="openers"></div>
+    </section>
+  </div>
+  <p id="error" class="error"></p>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+(function () {
+  // The same project and public key as the game (sync.py). Data only flows to signed-in owners.
+  var URL = "https://aaanufmvawaqxnumzaqr.supabase.co";
+  var KEY = "sb_publishable_DHPRn2ffsmC5YBUyc6Y6HQ_NJodvtVW";
+  var db = window.supabase.createClient(URL, KEY, { auth: { persistSession: true, detectSessionInUrl: true } });
+  var $ = function (id) { return document.getElementById(id); };
+
+  function esc(value) {
+    return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function num(value, digits) {
+    if (value == null || value === "") return "–";
+    var n = Number(value);
+    return digits ? n.toFixed(digits) : n.toLocaleString();
+  }
+  function show(id) {
+    ["signin", "denied", "dash"].forEach(function (name) { $(name).hidden = name !== id; });
+  }
+  function table(columns, rows) {
+    // columns: [label, key or function(row), "num" or ""]
+    var head = columns.map(function (c) { return "<th class='" + (c[2] || "") + "'>" + esc(c[0]) + "</th>"; }).join("");
+    var body = rows.map(function (row) {
+      return "<tr>" + columns.map(function (c) {
+        var cell = typeof c[1] === "function" ? c[1](row) : esc(row[c[1]]);
+        return "<td class='" + (c[2] || "") + "'>" + cell + "</td>";
+      }).join("") + "</tr>";
+    }).join("");
+    return rows.length ? "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>"
+                       : "<p class='small'>No games yet.</p>";
+  }
+
+  function distribution(guesses, mode) {
+    var from = mode === "w" ? 1 : 4, to = mode === "w" ? 6 : 9, counts = [], most = 1;
+    for (var n = from; n <= to; n++) { var c = (guesses && guesses[n]) || 0; counts.push([n, c]); most = Math.max(most, c); }
+    return "<span class='dist' title='" + esc(counts.map(function (p) { return p[0] + ": " + p[1]; }).join(", ")) + "'>" +
+      counts.map(function (p) { return "<span style='height:" + Math.max(1, Math.round(22 * p[1] / most)) + "px'></span>"; }).join("") +
+      "</span>";
+  }
+
+  function chart(days) {
+    var svg = $("ppd-svg"), tip = $("ppd-tip");
+    var data = days.slice().reverse();  // oldest first
+    var width = svg.clientWidth || 800, height = 220, left = 36, bottom = 22, top = 10;
+    var most = Math.max(1, Math.max.apply(null, data.map(function (d) { return d.players; })));
+    var step = data.length ? (width - left - 4) / data.length : 0;
+    var barW = Math.max(2, step - 2);  // 2px gap between bars
+    var y = function (v) { return top + (height - top - bottom) * (1 - v / most); };
+    var ticks = [0, Math.ceil(most / 2), most].filter(function (v, i, a) { return a.indexOf(v) === i; });
+    var parts = ticks.map(function (t) {
+      return "<line class='gridline' x1='" + left + "' x2='" + width + "' y1='" + y(t) + "' y2='" + y(t) + "'/>" +
+             "<text class='axis' x='" + (left - 6) + "' y='" + (y(t) + 4) + "' text-anchor='end'>" + t + "</text>";
+    });
+    data.forEach(function (d, i) {
+      var x = left + i * step + 1, h = Math.max(0, height - bottom - y(d.players));
+      // A 4px-rounded top, anchored to the baseline; the hit area is the whole column.
+      var r = Math.min(4, barW / 2, h);
+      var path = "M" + x + "," + (height - bottom) + "v" + (-(h - r)) + "q0," + (-r) + " " + r + "," + (-r) +
+                 "h" + (barW - 2 * r) + "q" + r + ",0 " + r + "," + r + "v" + (h - r) + "z";
+      parts.push("<rect class='hit' data-i='" + i + "' x='" + (x - 1) + "' y='" + top + "' width='" + step +
+                 "' height='" + (height - top - bottom) + "'/>" + (h > 0 ? "<path class='bar' d='" + path + "'/>" : ""));
+      if (i === 0 || i === data.length - 1 || (data.length > 14 && i % 7 === 0)) {
+        parts.push("<text class='axis' x='" + (x + barW / 2) + "' y='" + (height - 6) + "' text-anchor='middle'>" +
+                   esc(String(d.day).slice(5)) + "</text>");
+      }
+    });
+    svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+    svg.innerHTML = parts.join("");
+    svg.querySelectorAll(".hit").forEach(function (hit) {
+      hit.addEventListener("mouseenter", function () {
+        var d = data[Number(hit.dataset.i)];
+        tip.innerHTML = "<b>" + esc(d.day) + "</b><br>" + d.players + " player" + (d.players === 1 ? "" : "s") +
+          " · " + d.daily_wordle_games + " Wordle · " + d.daily_quordle_games + " Quordle · " + d.practice_games + " practice";
+        var box = hit.getBoundingClientRect(), outer = $("ppd-chart").getBoundingClientRect();
+        tip.style.left = (box.left - outer.left + box.width / 2) + "px";
+        tip.style.top = (y(d.players) / height * outer.height) + "px";
+        tip.style.display = "block";
+      });
+      hit.addEventListener("mouseleave", function () { tip.style.display = "none"; });
+    });
+    if (!data.length) svg.innerHTML = "<text class='axis' x='50%' y='50%' text-anchor='middle'>No games yet</text>";
+  }
+
+  function render(s) {
+    var t = s.totals;
+    $("updated").textContent = "Updated " + new Date(s.at).toLocaleTimeString();
+    $("tiles").innerHTML = [
+      [t.players, "players (device groups)"], [t.players_today, "played in the last 24 h"],
+      [t.games, "games"], [t.games_today, "games in the last 24 h"], [t.daily_games, "daily puzzle games"],
+      [t.devices, "devices"], [t.linked_players, "players with linked devices"],
+      [t.sharing_players, "players sharing with friends"], [t.friendships, "friendships"], [t.uat_games, "UAT test games"]
+    ].map(function (p) {
+      return "<div class='card tile'><div class='value'>" + num(p[0]) + "</div><div class='label'>" + esc(p[1]) + "</div></div>";
+    }).join("");
+
+    chart(s.players_per_day);
+    $("ppd-table").innerHTML = table([["Day", "day"], ["Players", "players", "num"], ["Daily players", "daily_players", "num"],
+      ["Wordle", "daily_wordle_games", "num"], ["Quordle", "daily_quordle_games", "num"], ["Practice", "practice_games", "num"]],
+      s.players_per_day);
+
+    $("daily").innerHTML = table([
+      ["#", "daily", "num"], ["Game", function (r) { return r.mode === "w" ? "Wordle" : "Quordle"; }],
+      ["Date", "day"],
+      ["Answer", function (r) { return "<span class='word'>" + esc((r.answers || []).join(" ")) + "</span>"; }],
+      ["Players", "players", "num"], ["Win %", function (r) { return num(r.win_percent, 1); }, "num"],
+      ["Avg guesses", function (r) { return num(r.avg_guesses_to_win, 2); }, "num"],
+      ["Wins by guesses", function (r) { return distribution(r.guesses, r.mode); }],
+      ["Hinted %", function (r) { return num(r.hinted_percent, 1); }, "num"],
+      ["Archive plays", "archive_plays", "num"]], s.daily_puzzles);
+
+    $("words").innerHTML = table([
+      ["Word", function (r) { return "<span class='word'>" + esc(r.word) + "</span>"; }],
+      ["Game", function (r) { return r.mode === "w" ? "Wordle" : "Quordle"; }], ["Games", "games", "num"],
+      ["Solved %", function (r) { return num(r.solved_percent, 1); }, "num"],
+      ["Avg guesses", function (r) { return num(r.avg_guesses_to_solve, 2); }, "num"],
+      ["Hinted %", function (r) { return num(r.hinted_percent, 1); }, "num"]], s.hardest_words);
+
+    $("hints").innerHTML = table([
+      ["Day", "day"], ["Game", function (r) { return r.mode === "w" ? "Wordle" : "Quordle"; }], ["Kind", "kind"],
+      ["Games", "games", "num"], ["Hinted %", function (r) { return num(r.hinted_percent, 1); }, "num"],
+      ["Avg hints", function (r) { return num(r.avg_hints, 2); }, "num"],
+      ["Used word lists %", function (r) { return num(r.used_lists_percent, 1); }, "num"],
+      ["Win % with hints", function (r) { return num(r.win_percent_with_hints, 1); }, "num"],
+      ["Win % without", function (r) { return num(r.win_percent_without, 1); }, "num"]], s.hint_use);
+
+    $("openers").innerHTML = table([
+      ["Word", function (r) { return "<span class='word'>" + esc(r.word) + "</span>"; }],
+      ["Game", function (r) { return r.mode === "w" ? "Wordle" : "Quordle"; }], ["Games", "games", "num"],
+      ["Share %", function (r) { return num(r.percent, 1); }, "num"]], s.first_guesses);
+  }
+
+  var last = null;
+  async function load() {
+    $("error").textContent = "";
+    var session = (await db.auth.getSession()).data.session;
+    if (!session) { show("signin"); return; }
+    var result = await db.rpc("wordle_owner_stats");
+    if (result.error) { $("error").textContent = "Couldn't load stats: " + result.error.message; return; }
+    var s = result.data;
+    if (!s || !s.ok) {
+      $("denied-email").textContent = session.user.email || session.user.id;
+      $("denied-sql").textContent = "insert into wordle.owners (user_id, note) values ('" + session.user.id + "', '" +
+        String(session.user.email || "").replace(/'/g, "") + "');";
+      show("denied");
+      return;
+    }
+    last = s;
+    show("dash");
+    render(s);
+  }
+
+  $("signin-form").addEventListener("submit", async function (event) {
+    event.preventDefault();
+    var status = $("signin-status");
+    status.className = "small";
+    status.textContent = "Sending...";
+    var result = await db.auth.signInWithOtp({ email: $("email").value.trim(),
+      options: { emailRedirectTo: location.origin + location.pathname } });
+    if (result.error) { status.className = "small error"; status.textContent = result.error.message; }
+    else { status.className = "small ok"; status.textContent = "Check your email and open the link on this device."; }
+  });
+  function signOut() { db.auth.signOut().then(function () { show("signin"); }); }
+  $("signout").addEventListener("click", signOut);
+  $("signout-2").addEventListener("click", signOut);
+  $("refresh").addEventListener("click", load);
+  $("ppd-toggle").addEventListener("click", function () {
+    var showTable = $("ppd-table").hidden;
+    $("ppd-table").hidden = !showTable;
+    $("ppd-chart").hidden = showTable;
+    this.textContent = showTable ? "Show chart" : "Show table";
+  });
+  window.addEventListener("resize", function () { if (last) chart(last.players_per_day); });
+  db.auth.onAuthStateChange(function (event) { if (event === "SIGNED_IN") load(); });
+  load();
+})();
+</script>
+</body>
+</html>
