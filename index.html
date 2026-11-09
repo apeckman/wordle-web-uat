@@ -327,12 +327,20 @@ function show_infobox() {
     </style>
 
     <script>
-/*
-        if (navigator.serviceWorker)
-            navigator.serviceWorker.register("https://pygame-web.github.io/cdn/0.9.3/pygbag0.9.3.js")
-        else
-            console.warn("Service workers not supported")
-*/
+        // Offline cache (web/sw.js): repeat visits load from the phone and work without internet.
+        // It isn't in local test builds (the register just fails there).
+        if ("serviceWorker" in navigator) {
+            navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(function () {
+                // This visit downloaded the Python runtime before the worker existed; tell it what to save.
+                function share() {
+                    navigator.serviceWorker.ready.then(function (reg) {
+                        reg.active.postMessage({ cache: performance.getEntriesByType("resource").map(function (e) { return e.name; }) });
+                    });
+                }
+                setTimeout(share, 15000);
+                setTimeout(share, 60000);
+            }).catch(function (e) { console.log("No offline cache:", e); });
+        }
     </script>
 
     <script src="https://pygame-web.github.io/cdn/0.9.3//browserfs.min.js"></script>
