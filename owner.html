@@ -95,6 +95,8 @@
   .ok { color: var(--good); }
   code { font-size: 12px; background: var(--bg); padding: 2px 4px; border-radius: 4px; word-break: break-all; }
   [hidden] { display: none !important; }
+  .badge { background: #e67828; color: #fff; font-size: 12px; font-weight: 700; padding: 2px 6px; border-radius: 6px;
+           vertical-align: middle; }
 </style>
 </head>
 <body>
@@ -124,8 +126,8 @@
       <button id="refresh">Refresh</button>
       <button id="signout">Sign out</button>
     </header>
-    <p class="small" style="margin-top:-8px">Real players only (the website and the Mac app); UAT test games are left out
-      except in the UAT count. Daily puzzle results count games finished on the puzzle's own day.</p>
+    <p class="small" style="margin-top:-8px"><span id="scope">Real players only (the website and the Mac app); UAT test
+      games live in the UAT project.</span> Daily puzzle results count games finished on the puzzle's own day.</p>
     <div class="tiles" id="tiles"></div>
 
     <section class="card">
@@ -162,11 +164,20 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 (function () {
-  // The same project and public key as the game (sync.py). Data only flows to signed-in owners.
-  var URL = "https://aaanufmvawaqxnumzaqr.supabase.co";
-  var KEY = "sb_publishable_DHPRn2ffsmC5YBUyc6Y6HQ_NJodvtVW";
+  // The same projects and public keys as the game (sync.py SERVERS): the UAT site's page reads the
+  // UAT project, the real site's page the real one. Data only flows to signed-in owners.
+  var UAT = /-uat\//.test(location.pathname) || /(^|[?&])uat=1(&|$)/.test(location.search.slice(1));
+  var URL = UAT ? "https://rznfechkplcrpgvfixnq.supabase.co" : "https://aaanufmvawaqxnumzaqr.supabase.co";
+  var KEY = UAT ? "sb_publishable_2cAvWndZOU5nyaHaiSMqLA_VFHsYcXM" : "sb_publishable_DHPRn2ffsmC5YBUyc6Y6HQ_NJodvtVW";
   var db = window.supabase.createClient(URL, KEY, { auth: { persistSession: true, detectSessionInUrl: true } });
   var $ = function (id) { return document.getElementById(id); };
+  if (UAT) {
+    document.title = "Wordle UAT Owner Stats";
+    document.querySelectorAll("h1").forEach(function (h) {
+      h.insertAdjacentHTML("beforeend", " <span class='badge'>UAT</span>");
+    });
+    $("scope").textContent = "UAT project: only UAT test games (from the UAT site and local test builds).";
+  }
 
   function esc(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
@@ -252,7 +263,8 @@
       [t.players, "players (device groups)"], [t.players_today, "played in the last 24 h"],
       [t.games, "games"], [t.games_today, "games in the last 24 h"], [t.daily_games, "daily puzzle games"],
       [t.devices, "devices"], [t.linked_players, "players with linked devices"],
-      [t.sharing_players, "players sharing with friends"], [t.friendships, "friendships"], [t.uat_games, "UAT test games"]
+      [t.sharing_players, "players sharing with friends"], [t.friendships, "friendships"],
+      [t.uat_games, "games from the other site (not counted)"]
     ].map(function (p) {
       return "<div class='card tile'><div class='value'>" + num(p[0]) + "</div><div class='label'>" + esc(p[1]) + "</div></div>";
     }).join("");
