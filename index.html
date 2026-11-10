@@ -643,7 +643,7 @@ function show_infobox() {
         function wordleWhen(iso) {
             var t = new Date(iso), now = new Date();
             if (isNaN(t)) return "";
-            var hour = t.toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
+            var hour = t.toLocaleTimeString([], {hour: "numeric", minute: "2-digit", second: "2-digit"});
             var day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             var then = new Date(t.getFullYear(), t.getMonth(), t.getDate());
             var days = Math.round((day - then) / 86400000);
