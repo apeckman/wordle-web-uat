@@ -280,6 +280,11 @@ function show_infobox() {
             right: 0;
         }
 
+        /* The canvas takes keyboard focus (tabindex) but must never show the browser's blue focus ring. */
+        canvas.emscripten:focus, canvas.emscripten:focus-visible {
+            outline: none;
+        }
+
         body {
             font-family: arial;
             margin: 0;
