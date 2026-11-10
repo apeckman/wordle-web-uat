@@ -123,19 +123,26 @@
 <main>
   <div id="signin" class="card signin" hidden>
     <h1 style="margin:0;font-size:20px">Wordle owner stats</h1>
-    <p class="muted" style="margin:0">Only for the game's owner. Sign in with the owner account's email and password,
-      or get a 6-digit code by email.</p>
+    <p class="muted" style="margin:0">Only for the game's owner. Sign in with the same email and password as this
+      site's game (the UAT site and the real site have separate accounts), or get a 6-digit code by email.</p>
     <form id="signin-form" style="display:grid;gap:10px" autocomplete="on">
       <input id="email" name="email" type="email" autocomplete="username" placeholder="you@example.com" required
              autocapitalize="off" spellcheck="false">
       <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Password">
       <button class="primary" type="submit" id="signin-button">Sign in</button>
       <button type="button" id="code-button">Email me a code instead</button>
+      <button type="button" id="reset-button">Forgot password?</button>
     </form>
     <form id="code-form" style="display:grid;gap:10px" hidden>
       <input id="code" name="code" type="text" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]*"
              maxlength="8" placeholder="6-digit code">
       <button class="primary" type="submit">Continue</button>
+    </form>
+    <form id="password-form" style="display:grid;gap:10px" hidden autocomplete="on">
+      <input id="password-user" name="email" type="email" autocomplete="username" readonly style="opacity:.7">
+      <input id="new-password" name="new-password" type="password" autocomplete="new-password" minlength="6"
+             placeholder="New password (6 or more characters)">
+      <button class="primary" type="submit">Save password</button>
     </form>
     <div id="signin-status" class="small"></div>
   </div>
@@ -167,8 +174,8 @@
         <label class="small"><input id="player-accounts" type="checkbox" style="width:auto"> accounts only</label>
       </div>
       <div class="scroll" id="players"></div>
-      <p class="small">Click a player for every game, their stats, friends and devices. A player is one account, or
-        one device that never signed in.</p>
+      <p class="small">Click a player (View games) for every game with its guesses, their stats, friends and
+        devices. A player is one account, or one device that never signed in.</p>
     </section>
 
     <section class="card">
@@ -376,7 +383,7 @@
     return "<a class='link' data-player='" + esc(id) + "'>" + esc(name || (p ? label(p) : String(id).slice(0, 8))) + "</a>";
   }
   var PLAYER_COLUMNS = [
-    ["Player", "label", function (p) { return "<b>" + esc(label(p)) + "</b>"; }],
+    ["Player", "label", function (p) { return "<b>" + esc(label(p)) + "</b> <a class='link'>View games</a>"; }],
     ["Account", "account", function (p) { return p.account ? "yes" : "–"; }],
     ["Friends name", "name", function (p) { return esc(p.name || "–"); }],
     ["Games", "games", null, "num"], ["Daily", "daily_games", null, "num"], ["Practice", "practice_games", null, "num"],
@@ -556,7 +563,7 @@
     return m || "That didn't work. Try again.";
   }
   // Enter submits in every browser (Safari can skip a form's own Enter right after filling a password).
-  [["signin-form", "signin-button"], ["code-form", null]].forEach(function (pair) {
+  [["signin-form", "signin-button"], ["code-form", null], ["password-form", null]].forEach(function (pair) {
     $(pair[0]).addEventListener("keydown", function (event) {
       if (event.key !== "Enter" || event.isComposing || event.target.tagName !== "INPUT") return;
       event.preventDefault();
@@ -570,7 +577,10 @@
     var result = await db.auth.signInWithPassword({ email: $("email").value.trim(), password: $("password").value });
     if (result.error) say(plain(result.error), false);
   });
-  $("code-button").addEventListener("click", async function () {
+  var resetting = false;  // a "Forgot password?" sign-in: ask for a new password before showing stats
+  $("reset-button").addEventListener("click", function () { resetting = true; sendCode(); });
+  $("code-button").addEventListener("click", function () { resetting = false; sendCode(); });
+  async function sendCode() {
     var email = $("email").value.trim();
     if (!email) { say("Type your email first.", false); return; }
     say("Sending a code...");
@@ -578,14 +588,40 @@
     var result = await db.auth.signInWithOtp({ email: email, options: { shouldCreateUser: false } });
     if (result.error) { say(plain(result.error), false); return; }
     $("code-form").hidden = false;
-    say("We emailed a 6-digit code to " + email + ". Type it below.", true);
+    say("We emailed a 6-digit code to " + email + ". Type it below" + (resetting ? ", then choose a new password." : "."), true);
     $("code").focus();
-  });
+  }
   $("code-form").addEventListener("submit", async function (event) {
     event.preventDefault();
     say("Checking...");
     var result = await db.auth.verifyOtp({ email: $("email").value.trim(), token: $("code").value.trim(), type: "email" });
-    if (result.error) say(plain(result.error), false);
+    if (result.error) { say(plain(result.error), false); return; }
+    if (resetting) {
+      $("signin-form").hidden = true;
+      $("code-form").hidden = true;
+      $("password-form").hidden = false;
+      $("password-user").value = $("email").value.trim();
+      say("Signed in. Choose a new password (it's also your password in this site's game).", true);
+      $("new-password").focus();
+    }
+  });
+  $("password-form").addEventListener("submit", async function (event) {
+    event.preventDefault();
+    var password = $("new-password").value;
+    if (password.length < 6) { say("Choose a password of at least 6 characters.", false); return; }
+    say("Saving...");
+    var result = await db.auth.updateUser({ password: password });
+    if (result.error) {
+      say(/different from the old/i.test(result.error.message) ? "That's already your password. Choose a different one." :
+          plain(result.error), false);
+      return;
+    }
+    resetting = false;
+    $("password-form").hidden = true;
+    $("signin-form").hidden = false;
+    $("new-password").value = "";
+    say("Password saved.", true);
+    load();
   });
   function signOut() { db.auth.signOut().then(function () { show("signin"); }); }
   $("signout").addEventListener("click", signOut);
@@ -612,7 +648,7 @@
     if (row) openPlayer(row.dataset.player);
   });
   document.addEventListener("keydown", function (event) { if (event.key === "Escape") closePlayer(); });
-  db.auth.onAuthStateChange(function (event) { if (event === "SIGNED_IN") load(); });
+  db.auth.onAuthStateChange(function (event) { if (event === "SIGNED_IN" && !resetting) load(); });
   load();
 })();
 </script>
