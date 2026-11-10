@@ -465,6 +465,15 @@ function show_infobox() {
             if (text !== null) wordleShareText(text);
         }, true);
 
+        // Back in view (switched back to the tab or the home-screen app) or back online: the game
+        // syncs straight away (gui.py poll_woke), so games played on another device show up.
+        window.wordleWoke = false;
+        document.addEventListener("visibilitychange", function () {
+            if (document.visibilityState === "visible") window.wordleWoke = true;
+        });
+        window.addEventListener("pageshow", function () { window.wordleWoke = true; });
+        window.addEventListener("online", function () { window.wordleWoke = true; });
+
         // Sync (sync.py BrowserTransport): the browser's Python has no sockets or threads, so the page
         // makes the request and keeps the answer, as JSON {status, text}, until the game takes it.
         // status 0 means it never got there (offline, or no answer within 15 seconds).
