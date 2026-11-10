@@ -411,19 +411,43 @@ function show_infobox() {
             }
         }
 
+        // iPhone Safari allows one share at a time, and sometimes never hears back from a finished one
+        // (after sending in Messages, say): every later share is then refused until a reload. So if
+        // the last share is still unanswered, share from a fresh hidden frame (each page has its own
+        // share slot; it's the same site, so it counts as the same tap) and only copy if that fails.
+        var wordleSharePending = false;
+        function wordleFreshShare() {
+            try {
+                var frame = document.createElement("iframe");
+                frame.setAttribute("aria-hidden", "true");
+                frame.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;border:0;pointer-events:none";
+                document.body.appendChild(frame);
+                var nav = frame.contentWindow && frame.contentWindow.navigator;
+                if (!nav || !nav.share) { frame.remove(); return null; }
+                return { share: function (data) { return nav.share(data); }, done: function () {
+                    setTimeout(function () { frame.remove(); }, 1000); } };
+            } catch (e) { return null; }
+        }
         function wordleShareText(text) {
             // Phones get the share sheet (Messages, WhatsApp...); computers copy to the clipboard.
             var phone = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
-            if (phone && navigator.share) {
-                navigator.share({ text: text }).then(function () {
-                    window.wordleShareStatus = "shared";
-                }, function (error) {
-                    if (error && error.name === "AbortError") window.wordleShareStatus = "cancelled";
-                    else wordleCopy(text);
-                });
-            } else {
-                wordleCopy(text);
+            if (!(phone && navigator.share)) { wordleCopy(text); return; }
+            var via = wordleSharePending ? wordleFreshShare() : null;
+            var attempt;
+            try {
+                attempt = via ? via.share({ text: text }) : navigator.share({ text: text });
+            } catch (e) {
+                attempt = Promise.reject(e);
             }
+            if (!via) wordleSharePending = true;
+            attempt.then(function () {
+                window.wordleShareStatus = "shared";
+            }, function (error) {
+                if (error && error.name === "AbortError") window.wordleShareStatus = "cancelled";
+                else wordleCopy(text);
+            }).then(function () {
+                if (via) via.done(); else wordleSharePending = false;
+            });
         }
 
         function wordleShareAt(clientX, clientY) {
