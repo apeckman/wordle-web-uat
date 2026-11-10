@@ -555,6 +555,14 @@
     if (/not confirmed/i.test(m)) return "This email isn't confirmed yet. Use Email me a code.";
     return m || "That didn't work. Try again.";
   }
+  // Enter submits in every browser (Safari can skip a form's own Enter right after filling a password).
+  [["signin-form", "signin-button"], ["code-form", null]].forEach(function (pair) {
+    $(pair[0]).addEventListener("keydown", function (event) {
+      if (event.key !== "Enter" || event.isComposing || event.target.tagName !== "INPUT") return;
+      event.preventDefault();
+      $(pair[0]).requestSubmit ? $(pair[0]).requestSubmit() : $(pair[0]).dispatchEvent(new Event("submit", { cancelable: true }));
+    });
+  });
   $("signin-form").addEventListener("submit", async function (event) {
     event.preventDefault();
     if (!$("password").value) { say("Type your password, or use Email me a code.", false); return; }

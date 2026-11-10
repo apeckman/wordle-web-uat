@@ -639,6 +639,13 @@ function show_infobox() {
                 e.preventDefault();
                 post(actions[mode]);
             });
+            // Enter in any field submits, without relying on the browser's own "implicit submission"
+            // (which Safari can skip, e.g. right after it fills in a saved password).
+            form.addEventListener("keydown", function (e) {
+                if (e.key !== "Enter" || e.isComposing || e.target.tagName !== "INPUT") return;
+                e.preventDefault();
+                if (!a.submit.disabled) post(actions[mode]);
+            });
             box.appendChild(form);
             document.body.appendChild(box);
             wordleAuth = a;
