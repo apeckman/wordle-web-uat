@@ -203,8 +203,9 @@ function show_infobox() {
     <meta name="apple-mobile-web-app-capable" content="yes"/>
 
 
-    <link rel="icon" type="image/png" href="favicon.png">
-    <link rel="apple-touch-icon" href="favicon.png">
+    <!-- "?v=2": a new address so Safari drops the default (snake) icon it cached before ours existed. -->
+    <link rel="icon" type="image/png" href="favicon.png?v=2">
+    <link rel="apple-touch-icon" href="favicon.png?v=2">
     <meta name="apple-mobile-web-app-title" content="Wordle">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
@@ -216,7 +217,7 @@ function show_infobox() {
             document.title = "Wordle UAT";
             document.querySelector('meta[name="apple-mobile-web-app-title"]').content = "Wordle UAT";
             document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]').forEach(function (link) {
-                link.href = "favicon-uat.png";
+                link.href = "favicon-uat.png?v=2";
             });
         }
     </script>

@@ -179,6 +179,14 @@
     </section>
 
     <section class="card">
+      <div class="row"><h2 class="grow">Account deletions</h2>
+        <span class="small">who tapped Delete account, who went through with it, and who tried to come back</span></div>
+      <div class="scroll" id="deletions"></div>
+      <p class="small">Deleted accounts keep their games here; their email can't sign in to the game again until you
+        reinstate it, and then its next sign-in gets the old games back.</p>
+    </section>
+
+    <section class="card">
       <div class="row"><h2 class="grow">Friend connections</h2></div>
       <div class="scroll" id="friendships"></div>
     </section>
@@ -362,6 +370,7 @@
       ["Share %", function (r) { return num(r.percent, 1); }, "num"]], s.first_guesses);
 
     renderPlayers();
+    renderDeletions(s);
     $("friendships").innerHTML = (s.friendships || []).length ? table([
       ["Player", function (r) { return playerLink(r.a, r.a_name); }],
       ["Friend", function (r) { return playerLink(r.b, r.b_name); }],
@@ -383,7 +392,9 @@
     return "<a class='link' data-player='" + esc(id) + "'>" + esc(name || (p ? label(p) : String(id).slice(0, 8))) + "</a>";
   }
   var PLAYER_COLUMNS = [
-    ["Player", "label", function (p) { return "<b>" + esc(label(p)) + "</b> <a class='link'>View games</a>"; }],
+    ["Player", "label", function (p) {
+      return "<b>" + esc(label(p)) + "</b>" + (p.deleted_at ? " <span class='lost'>(deleted)</span>" : "") +
+        " <a class='link'>View games</a>"; }],
     ["Account", "account", function (p) { return p.account ? "yes" : "–"; }],
     ["Friends name", "name", function (p) { return esc(p.name || "–"); }],
     ["Games", "games", null, "num"], ["Daily", "daily_games", null, "num"], ["Practice", "practice_games", null, "num"],
@@ -420,6 +431,34 @@
       }).join("") + "</tr>";
     }).join("");
     $("players").innerHTML = "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>";
+  }
+
+  function renderDeletions(s) {
+    // One row per email: when they asked, when they deleted, attempts to come back, and whether blocked.
+    var byEmail = {}, order = [];
+    (s.deletions || []).forEach(function (d) {
+      var key = d.email || ("account " + String(d.user_id || "").slice(0, 8));
+      if (!byEmail[key]) { byEmail[key] = { email: key, asked: 0, last_asked: null, deleted: null, blocked: 0, reinstated: null }; order.push(key); }
+      var r = byEmail[key];
+      if (d.event === "requested") { r.asked++; r.last_asked = r.last_asked || d.at; }
+      if (d.event === "deleted") r.deleted = r.deleted || d.at;
+      if (d.event === "blocked") r.blocked++;
+      if (d.event === "reinstated") r.reinstated = r.reinstated || d.at;
+    });
+    var blocked = {};
+    (s.blocked || []).forEach(function (b) { blocked[b.email] = b; });
+    var rows = order.map(function (k) { return byEmail[k]; });
+    $("deletions").innerHTML = rows.length ? table([
+      ["Email", function (r) { return esc(r.email); }],
+      ["Asked to delete", function (r) { return r.asked ? when(r.last_asked) + (r.asked > 1 ? " (" + r.asked + " times)" : "") : "–"; }],
+      ["Deleted", function (r) { return r.deleted ? "<span class='lost'>" + when(r.deleted) + "</span>" : "no (stopped short)"; }],
+      ["Tried to come back", function (r) { return r.blocked ? r.blocked + " time" + (r.blocked > 1 ? "s" : "") : "–"; }],
+      ["Status", function (r) {
+        var b = blocked[r.email];
+        if (b && !b.reinstated_at) return "Blocked <button data-reinstate='" + esc(r.email) + "'>Reinstate</button>";
+        if (b && b.reinstated_at) return "Reinstated (games come back at next sign-in)";
+        return r.deleted ? (r.reinstated ? "Reinstated, back" : "–") : "Still has an account";
+      }]], rows) : "<p class='small'>Nobody has asked to delete an account.</p>";
   }
 
   // ----- one player ------------------------------------------------------------------------------
@@ -644,6 +683,19 @@
       return;
     }
     if (event.target.id === "close" || event.target.id === "drawer") { closePlayer(); return; }
+    var reinstate = event.target.closest("[data-reinstate]");
+    if (reinstate) {
+      var email = reinstate.dataset.reinstate;
+      if (!window.confirm("Let " + email + " sign in again? Their next sign-in in the game gets their old games back.")) return;
+      reinstate.disabled = true;
+      db.rpc("wordle_owner_reinstate", { p_email: email }).then(function (r) {
+        if (r.error || !r.data || !r.data.ok) {
+          $("error").textContent = "Couldn't reinstate: " + (r.error ? r.error.message : (r.data && r.data.error));
+        }
+        load();
+      });
+      return;
+    }
     var row = event.target.closest("[data-player]");
     if (row) openPlayer(row.dataset.player);
   });
