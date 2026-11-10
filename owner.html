@@ -95,6 +95,26 @@
   .ok { color: var(--good); }
   code { font-size: 12px; background: var(--bg); padding: 2px 4px; border-radius: 4px; word-break: break-all; }
   [hidden] { display: none !important; }
+  tr.pick { cursor: pointer; }
+  tr.pick:hover td { background: var(--bg); }
+  th.sort { cursor: pointer; user-select: none; }
+  th.sort.on::after { content: " \25BE"; }
+  th.sort.on.up::after { content: " \25B4"; }
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .toolbar input { max-width: 320px; }
+  .drawer { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; justify-content: flex-end; z-index: 10; }
+  .drawer .panel { background: var(--bg); width: min(960px, 100%); height: 100%; overflow-y: auto; padding: 20px 16px 48px; }
+  .drawer .panel header { margin-bottom: 12px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .tiles.small .tile .value { font-size: 22px; }
+  .tl { display: inline-flex; gap: 2px; margin-right: 6px; vertical-align: middle; }
+  .tl span { width: 18px; height: 18px; border-radius: 3px; font: 600 11px/18px ui-monospace, Menlo, monospace;
+             text-align: center; text-transform: uppercase; color: #fff; background: #787c7e; }
+  .tl span.g { background: #2e9a5a; }
+  .tl span.y { background: #c9a227; }
+  .won { color: var(--good); font-weight: 600; }
+  .lost { color: var(--bad); font-weight: 600; }
+  a.link { color: var(--accent); cursor: pointer; text-decoration: underline; }
   .badge { background: #e67828; color: #fff; font-size: 12px; font-weight: 700; padding: 2px 6px; border-radius: 6px;
            vertical-align: middle; }
 </style>
@@ -141,6 +161,22 @@
     <div class="tiles" id="tiles"></div>
 
     <section class="card">
+      <div class="row"><h2 class="grow">Players</h2><span class="small" id="players-count"></span></div>
+      <div class="toolbar">
+        <input id="player-search" type="search" placeholder="Search email, name or id" autocomplete="off">
+        <label class="small"><input id="player-accounts" type="checkbox" style="width:auto"> accounts only</label>
+      </div>
+      <div class="scroll" id="players"></div>
+      <p class="small">Click a player for every game, their stats, friends and devices. A player is one account, or
+        one device that never signed in.</p>
+    </section>
+
+    <section class="card">
+      <div class="row"><h2 class="grow">Friend connections</h2></div>
+      <div class="scroll" id="friendships"></div>
+    </section>
+
+    <section class="card">
       <div class="row"><h2 class="grow">Players per day</h2>
         <button id="ppd-toggle" type="button">Show table</button></div>
       <div class="chart" id="ppd-chart"><svg id="ppd-svg" role="img" aria-label="Players per day, last 60 days"></svg>
@@ -170,6 +206,10 @@
   </div>
   <p id="error" class="error"></p>
 </main>
+
+<div class="drawer" id="drawer" hidden>
+  <div class="panel" id="panel"></div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
@@ -270,9 +310,9 @@
     var t = s.totals;
     $("updated").textContent = "Updated " + new Date(s.at).toLocaleTimeString();
     $("tiles").innerHTML = [
-      [t.players, "players (device groups)"], [t.players_today, "played in the last 24 h"],
+      [t.players, "players"], [t.accounts, "with an account"], [t.players_today, "played in the last 24 h"],
       [t.games, "games"], [t.games_today, "games in the last 24 h"], [t.daily_games, "daily puzzle games"],
-      [t.devices, "devices"], [t.linked_players, "players with linked devices"],
+      [t.devices, "devices"], [t.linked_players, "players on 2+ devices"],
       [t.sharing_players, "players sharing with friends"], [t.friendships, "friendships"],
       [t.uat_games, "games from the other site (not counted)"]
     ].map(function (p) {
@@ -313,7 +353,170 @@
       ["Word", function (r) { return "<span class='word'>" + esc(r.word) + "</span>"; }],
       ["Game", function (r) { return r.mode === "w" ? "Wordle" : "Quordle"; }], ["Games", "games", "num"],
       ["Share %", function (r) { return num(r.percent, 1); }, "num"]], s.first_guesses);
+
+    renderPlayers();
+    $("friendships").innerHTML = (s.friendships || []).length ? table([
+      ["Player", function (r) { return playerLink(r.a, r.a_name); }],
+      ["Friend", function (r) { return playerLink(r.b, r.b_name); }],
+      ["Since", function (r) { return when(r.since); }]], s.friendships) : "<p class='small'>No friends yet.</p>";
   }
+
+  // ----- players -----------------------------------------------------------------------------
+  var sortKey = "last_played", sortUp = false;
+  function when(iso) {
+    if (!iso) return "–";
+    var d = new Date(iso);
+    return isNaN(d) ? esc(iso) : esc(d.toLocaleDateString([], { month: "short", day: "numeric", year: "2-digit" }) +
+      " " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+  }
+  function label(p) { return p.email || p.name || ("Player " + String(p.id).slice(0, 8)); }
+  function byId(id) { return ((last && last.players) || []).filter(function (p) { return p.id === id; })[0]; }
+  function playerLink(id, name) {
+    var p = byId(id);
+    return "<a class='link' data-player='" + esc(id) + "'>" + esc(name || (p ? label(p) : String(id).slice(0, 8))) + "</a>";
+  }
+  var PLAYER_COLUMNS = [
+    ["Player", "label", function (p) { return "<b>" + esc(label(p)) + "</b>"; }],
+    ["Account", "account", function (p) { return p.account ? "yes" : "–"; }],
+    ["Friends name", "name", function (p) { return esc(p.name || "–"); }],
+    ["Games", "games", null, "num"], ["Daily", "daily_games", null, "num"], ["Practice", "practice_games", null, "num"],
+    ["Win %", "win_percent", function (p) { return num(p.win_percent); }, "num"],
+    ["Hinted", "hinted_games", null, "num"], ["Friends", "friends", null, "num"],
+    ["Devices", "devices", null, "num"], ["In progress", "in_progress", null, "num"],
+    ["Last played", "last_played", function (p) { return when(p.last_played); }],
+    ["Last seen", "last_seen", function (p) { return when(p.last_seen); }],
+    ["Joined", "created", function (p) { return when(p.created); }]];
+  function renderPlayers() {
+    var players = (last && last.players) || [];
+    var q = $("player-search").value.trim().toLowerCase(), accountsOnly = $("player-accounts").checked;
+    var rows = players.filter(function (p) {
+      if (accountsOnly && !p.account) return false;
+      return !q || [p.email, p.name, p.id].some(function (v) { return v && String(v).toLowerCase().indexOf(q) >= 0; });
+    });
+    rows.sort(function (a, b) {
+      var x = sortKey === "label" ? label(a).toLowerCase() : a[sortKey], y = sortKey === "label" ? label(b).toLowerCase() : b[sortKey];
+      if (x == null && y == null) return 0;
+      if (x == null) return 1;
+      if (y == null) return -1;
+      return (x < y ? -1 : x > y ? 1 : 0) * (sortUp ? 1 : -1);
+    });
+    $("players-count").textContent = rows.length === players.length ? players.length + " players" :
+      rows.length + " of " + players.length + " players";
+    if (!rows.length) { $("players").innerHTML = "<p class='small'>" + (players.length ? "No match." : "No players yet.") + "</p>"; return; }
+    var head = PLAYER_COLUMNS.map(function (c) {
+      return "<th class='sort " + (c[3] || "") + (c[1] === sortKey ? " on" + (sortUp ? " up" : "") : "") +
+        "' data-sort='" + c[1] + "'>" + esc(c[0]) + "</th>";
+    }).join("");
+    var body = rows.map(function (p) {
+      return "<tr class='pick' data-player='" + esc(p.id) + "'>" + PLAYER_COLUMNS.map(function (c) {
+        return "<td class='" + (c[3] || "") + "'>" + (c[2] ? c[2](p) : esc(num(p[c[1]]))) + "</td>";
+      }).join("") + "</tr>";
+    }).join("");
+    $("players").innerHTML = "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>";
+  }
+
+  // ----- one player ------------------------------------------------------------------------------
+  var EPOCH = Date.UTC(2026, 10, 1);  // daily puzzle #1 (daily.py EPOCH)
+  function puzzleNumber(isoDate) {
+    var p = String(isoDate).split("-").map(Number);
+    return Math.round((Date.UTC(p[0], p[1] - 1, p[2]) - EPOCH) / 86400000) + 1;
+  }
+  function todayNumber() { var d = new Date(); return puzzleNumber(d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate()); }
+  function streaks(games) {
+    // The game's rules (history.py streaks): daily puzzles won on their own day; archive plays
+    // neither add nor break; a loss or a missed day does.
+    var onDay = {}, won = {}, best = 0;
+    games.forEach(function (g) {
+      if (g.daily != null && g.played_on && puzzleNumber(g.played_on) === g.daily) onDay[g.daily] = !!g.won;
+    });
+    Object.keys(onDay).forEach(function (n) { if (onDay[n]) won[n] = true; });
+    Object.keys(won).forEach(function (k) {
+      var n = Number(k);
+      if (!won[n - 1]) { var len = 1; while (won[n + len]) len++; best = Math.max(best, len); }
+    });
+    var t = todayNumber();
+    if (onDay[t] === false) return [0, best];
+    var n = won[t] ? t : t - 1, current = 0;
+    while (won[n]) { current++; n--; }
+    return [current, best];
+  }
+  function colors(guess, answer) {
+    // Standard two-pass scoring (Board.score): greens first, then yellows from what's left.
+    var out = ["", "", "", "", ""], left = {};
+    for (var i = 0; i < 5; i++) {
+      if (guess[i] === answer[i]) out[i] = "g"; else left[answer[i]] = (left[answer[i]] || 0) + 1;
+    }
+    for (i = 0; i < 5; i++) {
+      if (!out[i] && left[guess[i]]) { out[i] = "y"; left[guess[i]]--; }
+    }
+    return out;
+  }
+  function tiles(guess, answer) {
+    var c = colors(guess, answer);
+    return "<span class='tl' title='" + esc(guess.toUpperCase()) + "'>" + guess.split("").map(function (ch, i) {
+      return "<span class='" + c[i] + "'>" + esc(ch) + "</span>";
+    }).join("") + "</span>";
+  }
+  function gameRows(games) {
+    return table([
+      ["Finished", function (g) { return when(g.finished); }],
+      ["Game", function (g) { return (g.mode === "w" ? "Wordle" : "Quordle") + (g.daily != null ? " #" + g.daily : " practice"); }],
+      ["Result", function (g) {
+        return g.won ? "<span class='won'>Won in " + g.guesses.length + "</span>" : "<span class='lost'>Lost</span>";
+      }],
+      ["Answer", function (g) { return "<span class='word'>" + esc(g.answers.join(" ")) + "</span>"; }],
+      ["Guesses", function (g) {
+        if (g.mode === "w") return g.guesses.map(function (x) { return tiles(x, g.answers[0]); }).join("");
+        return "<span class='word'>" + esc(g.guesses.join(" ")) + "</span>";
+      }],
+      ["Hints", "hints", "num"],
+      ["On the day", function (g) { return g.daily == null ? "" : puzzleNumber(g.played_on) === g.daily ? "yes" : "archive"; }],
+      ["From", "site"]], games);
+  }
+  function modeStats(games, mode) {
+    var mine = games.filter(function (g) { return g.mode === mode; }), daily = mine.filter(function (g) { return g.daily != null; });
+    var wins = mine.filter(function (g) { return g.won; }), dist = {};
+    wins.forEach(function (g) { dist[g.guesses.length] = (dist[g.guesses.length] || 0) + 1; });
+    var st = streaks(daily);
+    return "<div class='card'><h2>" + (mode === "w" ? "Wordle" : "Quordle") + "</h2><div class='tiles small'>" + [
+      [mine.length, "played"], [mine.length ? Math.round(100 * wins.length / mine.length) + "%" : "–", "won"],
+      [st[0], "current streak"], [st[1], "best streak"], [daily.length, "daily"], [mine.length - daily.length, "practice"]
+    ].map(function (t) { return "<div class='tile'><div class='value'>" + esc(t[0]) + "</div><div class='label'>" + esc(t[1]) + "</div></div>"; }).join("") +
+      "</div><div class='small'>Wins by guesses: " + distribution(dist, mode) + "</div></div>";
+  }
+  async function openPlayer(id) {
+    $("drawer").hidden = false;
+    $("panel").innerHTML = "<p class='small'>Loading...</p>";
+    var result = await db.rpc("wordle_owner_player", { p_player: id });
+    var d = result.data;
+    if (result.error || !d || !d.ok) {
+      $("panel").innerHTML = "<header><h1>Player</h1><button id='close'>Close</button></header><p class='error'>" +
+        esc(result.error ? result.error.message : (d && d.error) || "Couldn't load this player") + "</p>";
+      return;
+    }
+    var p = d.player;
+    $("panel").innerHTML =
+      "<header><h1>" + esc(label(p)) + "</h1><button id='close'>Close</button></header>" +
+      "<p class='small'>" + [p.account ? "Account: " + esc(p.email || "yes") : "No account (one device)",
+        p.name ? "Friends name: " + esc(p.name) : "Not sharing with friends", "Joined " + when(p.created),
+        "Last seen " + when(p.last_seen), "Player id " + esc(p.id)].join(" · ") + "</p>" +
+      "<div class='grid2'>" + modeStats(d.games, "w") + modeStats(d.games, "q") + "</div>" +
+      "<section class='card'><h2>In progress</h2>" + ((d.progress.length || d.practice.length) ? table([
+        ["Game", function (g) { return (g.mode === "w" ? "Wordle" : "Quordle") + (g.daily != null ? " #" + g.daily : " practice"); }],
+        ["Answer", function (g) { return "<span class='word'>" + esc(g.answers.join(" ")) + "</span>"; }],
+        ["Guesses so far", function (g) { return "<span class='word'>" + esc(g.guesses.join(" ")) + "</span>"; }],
+        ["Started", function (g) { return when(g.started); }]], d.progress.concat(d.practice)) : "<p class='small'>Nothing unfinished.</p>") +
+      "</section>" +
+      "<section class='card'><h2>Friends (" + d.friends.length + ")</h2>" + (d.friends.length ? table([
+        ["Name", function (f) { return playerLink(f.id, f.name); }], ["Email", function (f) { return esc(f.email || "–"); }],
+        ["Since", function (f) { return when(f.since); }]], d.friends) : "<p class='small'>No friends.</p>") + "</section>" +
+      "<section class='card'><h2>Devices (" + d.devices.length + ")</h2>" + table([
+        ["First seen", function (x) { return when(x.created); }], ["Last seen", function (x) { return when(x.last_seen); }]], d.devices) +
+      "</section>" +
+      "<section class='card'><h2>Every game (" + d.games.length + ")</h2><div class='scroll'>" + gameRows(d.games) + "</div></section>";
+    $("panel").scrollTop = 0;
+  }
+  function closePlayer() { $("drawer").hidden = true; }
 
   var last = null;
   async function load() {
@@ -387,6 +590,20 @@
     this.textContent = showTable ? "Show chart" : "Show table";
   });
   window.addEventListener("resize", function () { if (last) chart(last.players_per_day); });
+  $("player-search").addEventListener("input", renderPlayers);
+  $("player-accounts").addEventListener("change", renderPlayers);
+  document.addEventListener("click", function (event) {
+    var th = event.target.closest("th[data-sort]");
+    if (th) {
+      if (sortKey === th.dataset.sort) sortUp = !sortUp; else { sortKey = th.dataset.sort; sortUp = sortKey === "label"; }
+      renderPlayers();
+      return;
+    }
+    if (event.target.id === "close" || event.target.id === "drawer") { closePlayer(); return; }
+    var row = event.target.closest("[data-player]");
+    if (row) openPlayer(row.dataset.player);
+  });
+  document.addEventListener("keydown", function (event) { if (event.key === "Escape") closePlayer(); });
   db.auth.onAuthStateChange(function (event) { if (event === "SIGNED_IN") load(); });
   load();
 })();
