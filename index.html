@@ -482,7 +482,8 @@ function show_infobox() {
         function wordleFetch(id, url, headers, body, method) {
             var stop = window.AbortController ? new AbortController() : null;
             var timer = setTimeout(function () { if (stop) stop.abort(); }, 15000);
-            fetch(url, { method: method || "POST", headers: JSON.parse(headers), body: body, cache: "no-store",
+            var verb = method || "POST";
+            fetch(url, { method: verb, headers: JSON.parse(headers), body: verb === "GET" ? undefined : body, cache: "no-store",
                          credentials: "omit", signal: stop ? stop.signal : undefined })
                 .then(function (r) { return r.text().then(function (t) { return { status: r.status, text: t }; }); })
                 .catch(function () { return { status: 0, text: "" }; })
@@ -534,18 +535,20 @@ function show_infobox() {
             var mode = spec.mode, reset = spec.purpose === "reset";
             var titles = {signin: "Sign in to save your stats", signup: "Create an account",
                           code: reset ? "Reset your password" : "Email me a code", verify: "Enter the code",
-                          newpassword: "Choose a new password"};
+                          newpassword: "Choose a new password", delete: "Delete your account"};
             var intros = {signin: "Your games stay safe in your account, so a new phone or a cleared browser gets " +
                               "them back. Playing without an account still works.",
                           signup: "Use an email you can open on this phone: we'll send a 6-digit code to confirm it.",
                           code: reset ? "We'll email you a 6-digit code. Then you can choose a new password." :
                               "No password needed: we'll email you a 6-digit code. (This makes an account if you " +
                               "don't have one.)",
-                          verify: "", newpassword: "Pick a new password for " + (spec.email || "your account") + "."};
+                          verify: "", newpassword: "Pick a new password for " + (spec.email || "your account") + ".",
+                          delete: "This permanently deletes your account, its email and password, your friends and " +
+                              "every game in it, on all your devices. It can't be undone."};
             var labels = {signin: "Sign in", signup: "Create account", code: "Email me a code", verify: "Continue",
-                          newpassword: "Save password"};
+                          newpassword: "Save password", delete: "Delete my account"};
             var actions = {signin: "signin", signup: "signup", code: "send_code", verify: "verify",
-                           newpassword: "set_password"};
+                           newpassword: "set_password", delete: "confirm_delete"};
             var box = document.createElement("div");
             box.id = "wordle-auth";
             box.style.cssText = "position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;" +
@@ -590,7 +593,7 @@ function show_infobox() {
             text(titles[mode], "font-weight:bold;font-size:19px;margin-bottom:6px");
             if (intros[mode]) text(intros[mode], "color:#a7aec4;font-size:14px;margin-bottom:6px");
             var a = {box: box, mode: mode, purpose: spec.purpose, label: labels[mode]};
-            if (mode === "verify" || mode === "newpassword") {
+            if (mode === "verify" || mode === "newpassword" || mode === "delete") {
                 // The account's email as the username, so the password manager files the code/password under it.
                 a.email = input("email", "email", "username", "Email", {readonly: "readonly"});
                 a.email.value = spec.email || "";
@@ -605,7 +608,7 @@ function show_infobox() {
                 a.password = input("password", "password", "new-password", "New password (6 or more characters)",
                                    {minlength: "6"});
             }
-            if (mode === "verify") {
+            if (mode === "verify" || mode === "delete") {
                 a.code = input("text", "code", "one-time-code", "6-digit code",
                                {inputmode: "numeric", pattern: "[0-9]*", maxlength: "8"});
             }
@@ -615,7 +618,8 @@ function show_infobox() {
             a.submit.type = "submit";
             a.submit.textContent = a.label;
             a.submit.style.cssText = "display:block;width:100%;margin-top:8px;padding:13px;border:0;border-radius:10px;" +
-                "font:bold 17px -apple-system,Helvetica,sans-serif;color:#fff;background:#2ea06b";
+                "font:bold 17px -apple-system,Helvetica,sans-serif;color:#fff;background:" +
+                (mode === "delete" ? "#c2412d" : "#2ea06b");
             form.appendChild(a.submit);
             if (mode === "signin") {
                 link("Email me a code instead", "mode:code");
@@ -625,6 +629,8 @@ function show_infobox() {
                 link("I already have an account", "mode:signin");
             } else if (mode === "code") {
                 link("Use my password instead", "mode:signin");
+            } else if (mode === "delete") {
+                link("Send a new code", "resend_delete");
             } else if (mode === "verify") {
                 link("Send a new code", "resend");
                 if (spec.purpose === "signup") link("Used the link in the email? Sign in", "mode:signin");
@@ -650,7 +656,7 @@ function show_infobox() {
             document.body.appendChild(box);
             wordleAuth = a;
             setTimeout(function () {
-                var first = mode === "verify" ? a.code : (a.email && !a.email.value ? a.email : a.password || a.email);
+                var first = mode === "verify" || mode === "delete" ? a.code : (a.email && !a.email.value ? a.email : a.password || a.email);
                 if (first) first.focus();
             }, 50);
         }
