@@ -639,6 +639,19 @@ function show_infobox() {
             }, 50);
         }
 
+        // "today at 3:42 PM" for a saved time (sync.py last_saved), in the phone's own time zone.
+        function wordleWhen(iso) {
+            var t = new Date(iso), now = new Date();
+            if (isNaN(t)) return "";
+            var hour = t.toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
+            var day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            var then = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+            var days = Math.round((day - then) / 86400000);
+            var label = days === 0 ? "today" : days === 1 ? "yesterday" :
+                t.toLocaleDateString([], {month: "short", day: "numeric"});
+            return label + " at " + hour;
+        }
+
         // The player's local date for the daily puzzle (gui.local_date), from the phone's own clock.
         function wordleToday() {
             var d = new Date();
