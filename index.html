@@ -470,6 +470,8 @@ function show_infobox() {
         // element like the game's canvas, so a click listener alone never fires there. The touch must
         // start and end on the same button (a drag that ends on it doesn't count).
         var wordleTouchStart = null, wordleTouchHandled = 0;
+        window.wordleTouchCount = 0;  // every touch the page sees (the ?debug=1 readout compares it with the game's)
+        document.addEventListener("touchstart", function () { window.wordleTouchCount++; }, { capture: true, passive: true });
         document.addEventListener("touchstart", function (event) {
             var touch = event.touches && event.touches[0];
             wordleTouchStart = touch ? wordleShareAt(touch.clientX, touch.clientY) : null;
