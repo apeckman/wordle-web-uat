@@ -175,7 +175,9 @@
       </div>
       <div class="scroll" id="players"></div>
       <p class="small">Click a player (View games) for every game with its guesses, their stats, friends and
-        devices. A player is one account, or one device that never signed in.</p>
+        devices. A player is one account, or one device that never signed in. The table lists the 500 most recently
+        active players who played or signed in; searching also looks through everyone else, including devices that
+        opened the game but never played.</p>
     </section>
 
     <section class="card">
@@ -326,6 +328,7 @@
     $("updated").textContent = "Updated " + new Date(s.at).toLocaleTimeString();
     $("tiles").innerHTML = [
       [t.players, "players"], [t.accounts, "with an account"], [t.players_today, "played in the last 24 h"],
+      [t.unplayed_players, "opened the game but never played"],
       [t.games, "games"], [t.games_today, "games in the last 24 h"], [t.daily_games, "daily puzzle games"],
       [t.devices, "devices"], [t.linked_players, "players on 2+ devices"],
       [t.sharing_players, "players sharing with friends"], [t.friendships, "friendships"],
@@ -386,7 +389,27 @@
       " " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
   }
   function label(p) { return p.email || p.name || ("Player " + String(p.id).slice(0, 8)); }
-  function byId(id) { return ((last && last.players) || []).filter(function (p) { return p.id === id; })[0]; }
+  var found = {};  // players the server search (wordle_owner_find) turned up, by id
+  function allPlayers() {
+    var list = ((last && last.players) || []).slice(), have = {};
+    list.forEach(function (p) { have[p.id] = true; });
+    Object.keys(found).forEach(function (id) { if (!have[id]) list.push(found[id]); });
+    return list;
+  }
+  function byId(id) { return allPlayers().filter(function (p) { return p.id === id; })[0]; }
+  var searchTimer = null, searchSeq = 0;
+  function searchServer() {
+    // Look beyond the listed players: after a pause in typing, ask the server, then show what it found.
+    clearTimeout(searchTimer);
+    var q = $("player-search").value.trim();
+    if (q.length < 2 || !db) return;
+    searchTimer = setTimeout(async function () {
+      var mine = ++searchSeq, result = await db.rpc("wordle_owner_find", { p_query: q });
+      if (mine !== searchSeq || result.error || !result.data || !result.data.ok) return;
+      result.data.players.forEach(function (p) { found[p.id] = p; });
+      renderPlayers();
+    }, 350);
+  }
   function playerLink(id, name) {
     var p = byId(id);
     return "<a class='link' data-player='" + esc(id) + "'>" + esc(name || (p ? label(p) : String(id).slice(0, 8))) + "</a>";
@@ -405,7 +428,7 @@
     ["Last seen", "last_seen", function (p) { return when(p.last_seen); }],
     ["Joined", "created", function (p) { return when(p.created); }]];
   function renderPlayers() {
-    var players = (last && last.players) || [];
+    var players = allPlayers();
     var q = $("player-search").value.trim().toLowerCase(), accountsOnly = $("player-accounts").checked;
     var rows = players.filter(function (p) {
       if (accountsOnly && !p.account) return false;
@@ -418,8 +441,9 @@
       if (y == null) return -1;
       return (x < y ? -1 : x > y ? 1 : 0) * (sortUp ? 1 : -1);
     });
-    $("players-count").textContent = rows.length === players.length ? players.length + " players" :
-      rows.length + " of " + players.length + " players";
+    var listed = ((last && last.players) || []).length;
+    $("players-count").textContent = (rows.length === players.length ? players.length + " players" :
+      rows.length + " of " + players.length + " players") + (listed >= 500 ? " (the 500 most recently active; search finds anyone)" : "");
     if (!rows.length) { $("players").innerHTML = "<p class='small'>" + (players.length ? "No match." : "No players yet.") + "</p>"; return; }
     var head = PLAYER_COLUMNS.map(function (c) {
       return "<th class='sort " + (c[3] || "") + (c[1] === sortKey ? " on" + (sortUp ? " up" : "") : "") +
@@ -673,7 +697,7 @@
     this.textContent = showTable ? "Show chart" : "Show table";
   });
   window.addEventListener("resize", function () { if (last) chart(last.players_per_day); });
-  $("player-search").addEventListener("input", renderPlayers);
+  $("player-search").addEventListener("input", function () { renderPlayers(); searchServer(); });
   $("player-accounts").addEventListener("change", renderPlayers);
   document.addEventListener("click", function (event) {
     var th = event.target.closest("th[data-sort]");
