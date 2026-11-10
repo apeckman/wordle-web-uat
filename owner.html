@@ -113,6 +113,7 @@
   .tl span.g { background: #2e9a5a; }
   .tl span.y { background: #c9a227; }
   .won { color: var(--good); font-weight: 600; }
+  .mark { font-size: 13px; margin: 0 6px 0 -2px; vertical-align: middle; }
   .lost { color: var(--bad); font-weight: 600; }
   a.link { color: var(--accent); cursor: pointer; text-decoration: underline; }
   .badge { background: #e67828; color: #fff; font-size: 12px; font-weight: 700; padding: 2px 6px; border-radius: 6px;
@@ -240,7 +241,8 @@
           </div>
         </div>
         <div class="scroll" id="players"></div>
-        <p class="small">Click a player for every game with its guesses, their streaks, friends and devices. A player is
+        <p class="small">Click a player for every game with its guesses (💡 a hint, 📖 the word list), their streaks,
+          friends and devices. A player is
           one account, or one device that never signed in. Listed: the 500 most recently active who played or signed in;
           the search also finds everyone else, including devices that opened the game but never played.</p>
       </section>
@@ -674,6 +676,17 @@
       return "<span class='" + c[i] + "'>" + esc(ch) + "</span>";
     }).join("") + "</span>";
   }
+  var MARKS = { hint: "\uD83D\uDCA1", list: "\uD83D\uDCD6" };  // 💡 a hint (or Solve), 📖 the words-left list
+  function guessList(g) {
+    // Each guess (coloured tiles in Wordle), followed by 💡 or 📖 if it had help.
+    var marks = g.marks || [];
+    var mark = function (i) {
+      var m = MARKS[marks[i]];
+      return m ? "<span class='mark' title='" + (marks[i] === "hint" ? "hint" : "word list") + "'>" + m + "</span>" : "";
+    };
+    if (g.mode === "w") return g.guesses.map(function (x, i) { return tiles(x, g.answers[0]) + mark(i); }).join("");
+    return g.guesses.map(function (x, i) { return "<span class='word'>" + esc(x) + "</span>" + mark(i); }).join(" ");
+  }
   function gameRows(games) {
     return table([
       ["Finished", function (g) { return when(g.finished); }],
@@ -682,10 +695,7 @@
         return g.won ? "<span class='won'>Won in " + g.guesses.length + "</span>" : "<span class='lost'>Lost</span>";
       }],
       ["Answer", function (g) { return answer(g.answers, g.daily); }],
-      ["Guesses", function (g) {
-        if (g.mode === "w") return g.guesses.map(function (x) { return tiles(x, g.answers[0]); }).join("");
-        return "<span class='word'>" + esc(g.guesses.join(" ")) + "</span>";
-      }],
+      ["Guesses", function (g) { return guessList(g); }],
       ["Hints", "hints", "num"],
       ["On the day", function (g) { return g.daily == null ? "" : puzzleNumber(g.played_on) === g.daily ? "yes" : "archive"; }],
       ["From", "site"]], games);
@@ -721,7 +731,7 @@
       "<section class='card'><h2>In progress</h2>" + ((d.progress.length || d.practice.length) ? table([
         ["Game", function (g) { return (g.mode === "w" ? "Wordle" : "Quordle") + (g.daily != null ? " #" + g.daily : " practice"); }],
         ["Answer", function (g) { return answer(g.answers, g.daily); }],
-        ["Guesses so far", function (g) { return "<span class='word'>" + esc(g.guesses.join(" ")) + "</span>"; }],
+        ["Guesses so far", function (g) { return guessList(g); }],
         ["Started", function (g) { return when(g.started); }]], d.progress.concat(d.practice)) : "<p class='small'>Nothing unfinished.</p>") +
       "</section>" +
       "<section class='card'><h2>Friends (" + d.friends.length + ")</h2>" + (d.friends.length ? table([
