@@ -117,6 +117,39 @@
   a.link { color: var(--accent); cursor: pointer; text-decoration: underline; }
   .badge { background: #e67828; color: #fff; font-size: 12px; font-weight: 700; padding: 2px 6px; border-radius: 6px;
            vertical-align: middle; }
+  .tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); margin: 0 0 16px;
+          scrollbar-width: none; position: sticky; top: 0; background: var(--bg); z-index: 5; }
+  .tabs button { border: 0; border-radius: 0; background: none; padding: 10px 12px; color: var(--text-2);
+                 white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  .tabs .count { color: var(--text-3); font-weight: 400; font-size: 13px; }
+  .tabs .alert { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--bad);
+                 color: #fff; font-size: 11px; line-height: 18px; text-align: center; font-weight: 700; }
+  .tile .sub { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chips button { padding: 5px 12px; border-radius: 999px; font-size: 13px; }
+  .chips button.on { background: var(--text); color: var(--surface); border-color: var(--text); }
+  .pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border);
+          color: var(--text-2); margin-left: 6px; vertical-align: 1px; font-weight: 500; }
+  .pill.bad { border-color: var(--bad); color: var(--bad); }
+  .sub2 { display: block; font-size: 12px; color: var(--text-3); }
+  .spoiler { filter: blur(5px); cursor: pointer; user-select: none; }
+  .spoiler.shown { filter: none; user-select: auto; }
+  .more { margin-top: 10px; }
+  .today { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .today .card { padding: 12px; }
+  .today h3 { margin: 0 0 6px; font-size: 14px; }
+  .today .nums { display: flex; gap: 16px; flex-wrap: wrap; }
+  .today .nums b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .today .nums span { font-size: 12px; color: var(--text-3); }
+  td .chev { color: var(--text-3); }
+  @media (max-width: 600px) {
+    header h1 { font-size: 18px; flex-basis: 100%; }
+    main { padding-top: 12px; }
+    .opt { display: none; }  /* (less important player columns; the player's page has them) */
+    #players td:first-child, #recent td:first-child { white-space: normal; min-width: 150px; }
+    .tile .value { font-size: 24px; }
+  }
 </style>
 </head>
 <body>
@@ -163,63 +196,94 @@
       <button id="refresh">Refresh</button>
       <button id="signout">Sign out</button>
     </header>
-    <p class="small" style="margin-top:-8px"><span id="scope">Real players only (the website and the Mac app); UAT test
-      games live in the UAT project.</span> Daily puzzle results count games finished on the puzzle's own day.</p>
-    <div class="tiles" id="tiles"></div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Sections">
+      <button role="tab" data-tab="overview">Overview</button>
+      <button role="tab" data-tab="players">Players <span class="count" id="tab-players"></span></button>
+      <button role="tab" data-tab="puzzles">Daily puzzles</button>
+      <button role="tab" data-tab="insights">Words &amp; hints</button>
+      <button role="tab" data-tab="people">Friends &amp; deletions <span class="alert" id="tab-people" hidden></span></button>
+    </nav>
 
-    <section class="card">
-      <div class="row"><h2 class="grow">Players</h2><span class="small" id="players-count"></span></div>
-      <div class="toolbar">
-        <input id="player-search" type="search" placeholder="Search email, name or id" autocomplete="off">
-        <label class="small"><input id="player-accounts" type="checkbox" style="width:auto"> accounts only</label>
+    <div data-view="overview">
+      <div class="tiles" id="tiles"></div>
+      <p class="small" id="also"></p>
+      <section class="card">
+        <div class="row"><h2 class="grow">Today's puzzles</h2><span class="small" id="today-label"></span></div>
+        <div id="today"></div>
+      </section>
+      <section class="card">
+        <div class="row"><h2 class="grow">Players per day</h2><span class="small" id="ppd-note"></span>
+          <button id="ppd-toggle" type="button">Show table</button></div>
+        <div class="chart" id="ppd-chart"><svg id="ppd-svg" role="img" aria-label="Players per day, last 60 days"></svg>
+          <div class="tip" id="ppd-tip"></div></div>
+        <div class="scroll" id="ppd-table" hidden></div>
+      </section>
+      <section class="card">
+        <div class="row"><h2 class="grow">Recently active</h2><a class="link" data-goto="players">All players</a></div>
+        <div id="recent"></div>
+      </section>
+      <p class="small"><span id="scope">Real players only (the website and the Mac app); UAT test games live in the UAT
+        project.</span> Daily puzzle results count games finished on the puzzle's own day. Answers to today's puzzles
+        are blurred: click one to show it.</p>
+    </div>
+
+    <div data-view="players" hidden>
+      <section class="card">
+        <div class="row"><h2 class="grow">Players</h2><span class="small" id="players-count"></span></div>
+        <div class="toolbar">
+          <input id="player-search" type="search" placeholder="Search email, name or id" autocomplete="off">
+          <div class="chips" id="player-filter" role="group" aria-label="Show">
+            <button data-filter="all" class="on">All</button>
+            <button data-filter="account">With an account</button>
+            <button data-filter="today">Active today</button>
+            <button data-filter="deleted">Deleted</button>
+          </div>
+        </div>
+        <div class="scroll" id="players"></div>
+        <p class="small">Click a player for every game with its guesses, their streaks, friends and devices. A player is
+          one account, or one device that never signed in. Listed: the 500 most recently active who played or signed in;
+          the search also finds everyone else, including devices that opened the game but never played.</p>
+      </section>
+    </div>
+
+    <div data-view="puzzles" hidden>
+      <section class="card">
+        <div class="row"><h2 class="grow">Daily puzzles</h2><span class="small">played on the puzzle's own day; bars: wins
+          by guesses used</span></div>
+        <div class="scroll" id="daily"></div>
+      </section>
+    </div>
+
+    <div data-view="insights" hidden>
+      <div class="grid2">
+        <section class="card">
+          <div class="row"><h2 class="grow">Hardest words</h2><span class="small">answers with 3+ games</span></div>
+          <div class="scroll" id="words"></div>
+        </section>
+        <section class="card">
+          <div class="row"><h2 class="grow">Opening words</h2><span class="small">first guesses</span></div>
+          <div class="scroll" id="openers"></div>
+        </section>
       </div>
-      <div class="scroll" id="players"></div>
-      <p class="small">Click a player (View games) for every game with its guesses, their stats, friends and
-        devices. A player is one account, or one device that never signed in. The table lists the 500 most recently
-        active players who played or signed in; searching also looks through everyone else, including devices that
-        opened the game but never played.</p>
-    </section>
+      <section class="card">
+        <div class="row"><h2 class="grow">Hint use</h2><span class="small">by day; word list = the words-left list</span></div>
+        <div class="scroll" id="hints"></div>
+      </section>
+    </div>
 
-    <section class="card">
-      <div class="row"><h2 class="grow">Account deletions</h2>
-        <span class="small">who tapped Delete account, who went through with it, and who tried to come back</span></div>
-      <div class="scroll" id="deletions"></div>
-      <p class="small">Deleted accounts keep their games here; their email can't sign in to the game again until you
-        reinstate it, and then its next sign-in gets the old games back.</p>
-    </section>
-
-    <section class="card">
-      <div class="row"><h2 class="grow">Friend connections</h2></div>
-      <div class="scroll" id="friendships"></div>
-    </section>
-
-    <section class="card">
-      <div class="row"><h2 class="grow">Players per day</h2>
-        <button id="ppd-toggle" type="button">Show table</button></div>
-      <div class="chart" id="ppd-chart"><svg id="ppd-svg" role="img" aria-label="Players per day, last 60 days"></svg>
-        <div class="tip" id="ppd-tip"></div></div>
-      <div class="scroll" id="ppd-table" hidden></div>
-    </section>
-
-    <section class="card">
-      <div class="row"><h2 class="grow">Daily puzzles</h2><span class="small">bars: wins by guesses used</span></div>
-      <div class="scroll" id="daily"></div>
-    </section>
-
-    <section class="card">
-      <div class="row"><h2 class="grow">Hardest words</h2><span class="small">answers with 3+ games, daily and practice</span></div>
-      <div class="scroll" id="words"></div>
-    </section>
-
-    <section class="card">
-      <div class="row"><h2 class="grow">Hint use</h2></div>
-      <div class="scroll" id="hints"></div>
-    </section>
-
-    <section class="card">
-      <div class="row"><h2 class="grow">Opening words</h2></div>
-      <div class="scroll" id="openers"></div>
-    </section>
+    <div data-view="people" hidden>
+      <section class="card">
+        <div class="row"><h2 class="grow">Account deletions</h2>
+          <span class="small">who tapped Delete account, who went through with it, and who tried to come back</span></div>
+        <div class="scroll" id="deletions"></div>
+        <p class="small">Deleted accounts keep their games here; their email can't sign in to the game again until you
+          reinstate it, and then its next sign-in gets the old games back.</p>
+      </section>
+      <section class="card">
+        <div class="row"><h2 class="grow">Friend connections</h2><span class="small" id="friends-count"></span></div>
+        <div class="scroll" id="friendships"></div>
+      </section>
+    </div>
   </div>
   <p id="error" class="error"></p>
 </main>
@@ -259,7 +323,7 @@
   function show(id) {
     ["signin", "denied", "dash"].forEach(function (name) { $(name).hidden = name !== id; });
   }
-  function table(columns, rows) {
+  function table(columns, rows, empty) {
     // columns: [label, key or function(row), "num" or ""]
     var head = columns.map(function (c) { return "<th class='" + (c[2] || "") + "'>" + esc(c[0]) + "</th>"; }).join("");
     var body = rows.map(function (row) {
@@ -269,8 +333,35 @@
       }).join("") + "</tr>";
     }).join("");
     return rows.length ? "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>"
-                       : "<p class='small'>No games yet.</p>";
+                       : "<p class='small'>" + esc(empty || "No games yet.") + "</p>";
   }
+  var expanded = {};  // long tables the owner opened all the way ("Show all")
+  function shortTable(id, columns, rows, limit, empty) {
+    var all = expanded[id] || rows.length <= limit + 3;
+    $(id).innerHTML = table(columns, all ? rows : rows.slice(0, limit), empty) + (rows.length > limit + 3 ?
+      "<button class='more' data-more='" + id + "'>" + (all ? "Show fewer" : "Show all " + rows.length) + "</button>" : "");
+  }
+  function ago(iso) {
+    // "5 min ago", "3 h ago", "yesterday", "Nov 8" (the full time on hover).
+    if (!iso) return "–";
+    var d = new Date(iso);
+    if (isNaN(d)) return esc(iso);
+    var mins = (Date.now() - d) / 60000, text;
+    if (mins < 1) text = "just now";
+    else if (mins < 60) text = Math.floor(mins) + " min ago";
+    else if (mins < 24 * 60) text = Math.floor(mins / 60) + " h ago";
+    else if (mins < 48 * 60) text = "yesterday";
+    else if (mins < 7 * 24 * 60) text = Math.floor(mins / 1440) + " days ago";
+    else text = d.toLocaleDateString([], { month: "short", day: "numeric" });
+    return "<span title='" + esc(d.toLocaleString()) + "'>" + esc(text) + "</span>";
+  }
+  function answer(words, daily) {
+    // Today's (and any later) daily answers start blurred, so the page doesn't spoil the owner's own game.
+    var text = "<span class='word'>" + esc((words || []).join(" ")) + "</span>";
+    return daily != null && daily >= todayNumber() ? "<span class='spoiler' title='Click to show'>" + text + "</span>" : text;
+  }
+  function pct(value) { return value == null ? "–" : Math.round(Number(value)) + "%"; }
+  var modeName = function (m) { return m === "w" ? "Wordle" : "Quordle"; };
 
   function distribution(guesses, mode) {
     var from = mode === "w" ? 1 : 4, to = mode === "w" ? 6 : 9, counts = [], most = 1;
@@ -285,7 +376,8 @@
     var data = days.slice().reverse();  // oldest first
     var width = svg.clientWidth || 800, height = 220, left = 36, bottom = 22, top = 10;
     var most = Math.max(1, Math.max.apply(null, data.map(function (d) { return d.players; })));
-    var step = data.length ? (width - left - 4) / data.length : 0;
+    // At least 30 day-slots, newest on the right, so a few days of data don't make giant bars.
+    var slots = Math.max(data.length, 30), step = (width - left - 4) / slots, start = left + (slots - data.length) * step;
     var barW = Math.max(2, step - 2);  // 2px gap between bars
     var y = function (v) { return top + (height - top - bottom) * (1 - v / most); };
     var ticks = [0, Math.ceil(most / 2), most].filter(function (v, i, a) { return a.indexOf(v) === i; });
@@ -294,7 +386,7 @@
              "<text class='axis' x='" + (left - 6) + "' y='" + (y(t) + 4) + "' text-anchor='end'>" + t + "</text>";
     });
     data.forEach(function (d, i) {
-      var x = left + i * step + 1, h = Math.max(0, height - bottom - y(d.players));
+      var x = start + i * step + 1, h = Math.max(0, height - bottom - y(d.players));
       // A 4px-rounded top, anchored to the baseline; the hit area is the whole column.
       var r = Math.min(4, barW / 2, h);
       var path = "M" + x + "," + (height - bottom) + "v" + (-(h - r)) + "q0," + (-r) + " " + r + "," + (-r) +
@@ -324,64 +416,110 @@
   }
 
   function render(s) {
-    var t = s.totals;
-    $("updated").textContent = "Updated " + new Date(s.at).toLocaleTimeString();
+    var t = s.totals, played = Math.max(0, (t.players || 0) - (t.unplayed_players || 0));
+    loadedAt = Date.now();
+    showUpdated();
+    var tile = function (value, labelText, sub) {
+      return "<div class='card tile'><div class='value'>" + num(value) + "</div><div class='label'>" + esc(labelText) +
+        "</div>" + (sub ? "<div class='sub'>" + sub + "</div>" : "") + "</div>";
+    };
     $("tiles").innerHTML = [
-      [t.players, "players"], [t.accounts, "with an account"], [t.players_today, "played in the last 24 h"],
-      [t.unplayed_players, "opened the game but never played"],
-      [t.games, "games"], [t.games_today, "games in the last 24 h"], [t.daily_games, "daily puzzle games"],
-      [t.devices, "devices"], [t.linked_players, "players on 2+ devices"],
-      [t.sharing_players, "players sharing with friends"], [t.friendships, "friendships"],
-      [t.uat_games, "games from the other site (not counted)"]
-    ].map(function (p) {
-      return "<div class='card tile'><div class='value'>" + num(p[0]) + "</div><div class='label'>" + esc(p[1]) + "</div></div>";
-    }).join("");
+      tile(played, "players", num(t.accounts) + " with an account · " + num(t.linked_players) + " on 2+ devices"),
+      tile(t.players_today, "played in the last day", num(t.games_today) + " games"),
+      tile(t.games, "games", num(t.daily_games) + " daily · " + num((t.games || 0) - (t.daily_games || 0)) + " practice"),
+      tile(t.sharing_players, "sharing with friends", num(t.friendships) + " friendship" + (t.friendships === 1 ? "" : "s"))
+    ].join("");
+    $("also").textContent = "Not counted as players: " + num(t.unplayed_players) + " device" +
+      (t.unplayed_players === 1 ? "" : "s") + " that opened the game but never played or signed in. " +
+      num(t.devices) + " devices in all" + (t.uat_games ? "; " + num(t.uat_games) + " games from the other site left out." : ".");
+    $("tab-players").textContent = num(played);
 
+    renderToday(s);
     chart(s.players_per_day);
+    var week = (s.players_per_day || []).slice(0, 7);
+    $("ppd-note").textContent = week.length ? "last 7 days: " + num(Math.round(10 * week.reduce(function (a, d) {
+      return a + d.players; }, 0) / 7) / 10) + " a day on average" : "";
     $("ppd-table").innerHTML = table([["Day", "day"], ["Players", "players", "num"], ["Daily players", "daily_players", "num"],
       ["Wordle", "daily_wordle_games", "num"], ["Quordle", "daily_quordle_games", "num"], ["Practice", "practice_games", "num"]],
       s.players_per_day);
+    var recent = (s.players || []).slice().sort(function (a, b) { return (active(b) || "").localeCompare(active(a) || ""); }).slice(0, 5);
+    $("recent").innerHTML = recent.length ? table([
+      ["Player", function (p) { return playerLink(p.id, label(p)) + chips(p); }],
+      ["Games", "games", "num"], ["Last active", function (p) { return ago(active(p)); }]], recent)
+      : "<p class='small'>Nobody has played yet.</p>";
 
-    $("daily").innerHTML = table([
-      ["#", "daily", "num"], ["Game", function (r) { return r.mode === "w" ? "Wordle" : "Quordle"; }],
-      ["Date", "day"],
-      ["Answer", function (r) { return "<span class='word'>" + esc((r.answers || []).join(" ")) + "</span>"; }],
+    shortTable("daily", [
+      ["#", "daily", "num"], ["Game", function (r) { return modeName(r.mode); }], ["Date", "day"],
+      ["Answer", function (r) { return answer(r.answers, r.daily); }],
       ["Players", "players", "num"], ["Win %", function (r) { return num(r.win_percent, 1); }, "num"],
       ["Avg guesses", function (r) { return num(r.avg_guesses_to_win, 2); }, "num"],
       ["Wins by guesses", function (r) { return distribution(r.guesses, r.mode); }],
       ["Hinted %", function (r) { return num(r.hinted_percent, 1); }, "num"],
-      ["Archive plays", "archive_plays", "num"]], s.daily_puzzles);
+      ["Archive plays", "archive_plays", "num"]], s.daily_puzzles || [], 14, "No daily puzzles played yet.");
 
-    $("words").innerHTML = table([
+    shortTable("words", [
       ["Word", function (r) { return "<span class='word'>" + esc(r.word) + "</span>"; }],
-      ["Game", function (r) { return r.mode === "w" ? "Wordle" : "Quordle"; }], ["Games", "games", "num"],
+      ["Game", function (r) { return modeName(r.mode); }], ["Games", "games", "num"],
       ["Solved %", function (r) { return num(r.solved_percent, 1); }, "num"],
       ["Avg guesses", function (r) { return num(r.avg_guesses_to_solve, 2); }, "num"],
-      ["Hinted %", function (r) { return num(r.hinted_percent, 1); }, "num"]], s.hardest_words);
+      ["Hinted %", function (r) { return num(r.hinted_percent, 1); }, "num"]], s.hardest_words || [], 10,
+      "Not enough games yet: a word shows up here once 3 games have had it as the answer.");
 
-    $("hints").innerHTML = table([
-      ["Day", "day"], ["Game", function (r) { return r.mode === "w" ? "Wordle" : "Quordle"; }], ["Kind", "kind"],
+    shortTable("openers", [
+      ["Word", function (r) { return "<span class='word'>" + esc(r.word) + "</span>"; }],
+      ["Game", function (r) { return modeName(r.mode); }], ["Games", "games", "num"],
+      ["Share %", function (r) { return num(r.percent, 1); }, "num"]], s.first_guesses || [], 10, "No games yet.");
+
+    shortTable("hints", [
+      ["Day", "day"], ["Game", function (r) { return modeName(r.mode); }], ["Kind", "kind"],
       ["Games", "games", "num"], ["Hinted %", function (r) { return num(r.hinted_percent, 1); }, "num"],
       ["Avg hints", function (r) { return num(r.avg_hints, 2); }, "num"],
-      ["Used word lists %", function (r) { return num(r.used_lists_percent, 1); }, "num"],
+      ["Used word list %", function (r) { return num(r.used_lists_percent, 1); }, "num"],
       ["Win % with hints", function (r) { return num(r.win_percent_with_hints, 1); }, "num"],
-      ["Win % without", function (r) { return num(r.win_percent_without, 1); }, "num"]], s.hint_use);
-
-    $("openers").innerHTML = table([
-      ["Word", function (r) { return "<span class='word'>" + esc(r.word) + "</span>"; }],
-      ["Game", function (r) { return r.mode === "w" ? "Wordle" : "Quordle"; }], ["Games", "games", "num"],
-      ["Share %", function (r) { return num(r.percent, 1); }, "num"]], s.first_guesses);
+      ["Win % without", function (r) { return num(r.win_percent_without, 1); }, "num"]], s.hint_use || [], 14, "No games yet.");
 
     renderPlayers();
     renderDeletions(s);
-    $("friendships").innerHTML = (s.friendships || []).length ? table([
+    var friends = s.friendships || [];
+    $("friends-count").textContent = friends.length ? friends.length + " pair" + (friends.length === 1 ? "" : "s") : "";
+    shortTable("friendships", [
       ["Player", function (r) { return playerLink(r.a, r.a_name); }],
       ["Friend", function (r) { return playerLink(r.b, r.b_name); }],
-      ["Since", function (r) { return when(r.since); }]], s.friendships) : "<p class='small'>No friends yet.</p>";
+      ["Since", function (r) { return ago(r.since); }]], friends, 20, "No friends yet.");
+    var waiting = (s.blocked || []).filter(function (b) { return !b.reinstated_at; }).length;
+    $("tab-people").hidden = !waiting;
+    $("tab-people").textContent = waiting;
+    $("tab-people").title = waiting + " blocked email" + (waiting === 1 ? "" : "s") + " (deleted accounts)";
+  }
+
+  function renderToday(s) {
+    var n = todayNumber(), rows = (s.daily_puzzles || []).filter(function (r) { return r.daily === n; });
+    $("today-label").textContent = "#" + n + " · " + new Date().toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+    $("today").innerHTML = "<div class='today'>" + ["w", "q"].map(function (mode) {
+      var r = rows.filter(function (x) { return x.mode === mode; })[0];
+      if (!r || !r.players) {
+        return "<div class='card'><h3>" + modeName(mode) + "</h3><p class='small' style='margin:0'>Nobody has finished it yet.</p></div>";
+      }
+      return "<div class='card'><h3>" + modeName(mode) + " " + answer(r.answers, r.daily) + "</h3><div class='nums'>" +
+        "<div><b>" + num(r.players) + "</b><span>played</span></div>" +
+        "<div><b>" + pct(r.win_percent) + "</b><span>won</span></div>" +
+        "<div><b>" + num(r.avg_guesses_to_win, 1) + "</b><span>avg guesses</span></div>" +
+        "<div><b>" + pct(r.hinted_percent) + "</b><span>used hints</span></div></div>" +
+        "<div class='small' style='margin-top:6px'>Wins by guesses: " + distribution(r.guesses, r.mode) + "</div></div>";
+    }).join("") + "</div>";
   }
 
   // ----- players -----------------------------------------------------------------------------
-  var sortKey = "last_played", sortUp = false;
+  var sortKey = "active", sortUp = false, filter = "all";
+  function active(p) {
+    // When a player was last around: their last finished game or their devices' last visit.
+    return [p.last_played, p.last_seen, p.created].filter(Boolean).sort().pop() || null;
+  }
+  function chips(p) {
+    return (p.account ? "<span class='pill'>account</span>" : "") +
+      (p.name ? "<span class='pill' title='Friends name'>" + esc(p.name) + "</span>" : "") +
+      (p.deleted_at ? "<span class='pill bad'>deleted</span>" : "");
+  }
   function when(iso) {
     if (!iso) return "–";
     var d = new Date(iso);
@@ -415,27 +553,32 @@
     return "<a class='link' data-player='" + esc(id) + "'>" + esc(name || (p ? label(p) : String(id).slice(0, 8))) + "</a>";
   }
   var PLAYER_COLUMNS = [
-    ["Player", "label", function (p) {
-      return "<b>" + esc(label(p)) + "</b>" + (p.deleted_at ? " <span class='lost'>(deleted)</span>" : "") +
-        " <a class='link'>View games</a>"; }],
-    ["Account", "account", function (p) { return p.account ? "yes" : "–"; }],
-    ["Friends name", "name", function (p) { return esc(p.name || "–"); }],
-    ["Games", "games", null, "num"], ["Daily", "daily_games", null, "num"], ["Practice", "practice_games", null, "num"],
+    ["Player", "label", function (p) { return "<b>" + esc(label(p)) + "</b>" + chips(p); }],
+    ["Games", "games", function (p) {
+      return num(p.games) + (p.games ? "<span class='sub2'>" + num(p.wordle_games) + " W · " + num(p.quordle_games) + " Q</span>" : "");
+    }, "num"],
     ["Win %", "win_percent", function (p) { return num(p.win_percent); }, "num"],
-    ["Hinted", "hinted_games", null, "num"], ["Friends", "friends", null, "num"],
-    ["Devices", "devices", null, "num"], ["In progress", "in_progress", null, "num"],
-    ["Last played", "last_played", function (p) { return when(p.last_played); }],
-    ["Last seen", "last_seen", function (p) { return when(p.last_seen); }],
-    ["Joined", "created", function (p) { return when(p.created); }]];
+    ["Hinted", "hinted_games", null, "num opt"], ["Unfinished", "in_progress", null, "num opt"],
+    ["Friends", "friends", null, "num opt"], ["Devices", "devices", null, "num opt"],
+    ["Last active", "active", function (p) { return ago(active(p)); }],
+    ["Joined", "created", function (p) { return ago(p.created); }, "opt"],
+    ["", null, function () { return "<span class='chev'>&rsaquo;</span>"; }]];
+  function sortValue(p) {
+    if (sortKey === "label") return label(p).toLowerCase();
+    if (sortKey === "active") return active(p);
+    return p[sortKey];
+  }
   function renderPlayers() {
-    var players = allPlayers();
-    var q = $("player-search").value.trim().toLowerCase(), accountsOnly = $("player-accounts").checked;
+    var players = allPlayers(), dayAgo = new Date(Date.now() - 86400000).toISOString();
+    var q = $("player-search").value.trim().toLowerCase();
     var rows = players.filter(function (p) {
-      if (accountsOnly && !p.account) return false;
+      if (filter === "account" && !p.account) return false;
+      if (filter === "deleted" && !p.deleted_at) return false;
+      if (filter === "today" && !(active(p) && new Date(active(p)) > new Date(dayAgo))) return false;
       return !q || [p.email, p.name, p.id].some(function (v) { return v && String(v).toLowerCase().indexOf(q) >= 0; });
     });
     rows.sort(function (a, b) {
-      var x = sortKey === "label" ? label(a).toLowerCase() : a[sortKey], y = sortKey === "label" ? label(b).toLowerCase() : b[sortKey];
+      var x = sortValue(a), y = sortValue(b);
       if (x == null && y == null) return 0;
       if (x == null) return 1;
       if (y == null) return -1;
@@ -444,13 +587,17 @@
     var listed = ((last && last.players) || []).length;
     $("players-count").textContent = (rows.length === players.length ? players.length + " players" :
       rows.length + " of " + players.length + " players") + (listed >= 500 ? " (the 500 most recently active; search finds anyone)" : "");
-    if (!rows.length) { $("players").innerHTML = "<p class='small'>" + (players.length ? "No match." : "No players yet.") + "</p>"; return; }
+    if (!rows.length) {
+      $("players").innerHTML = "<p class='small'>" + (q ? "No match yet" + (q.length >= 2 ? " (also searching everyone)..." : ".") :
+        players.length ? "Nobody here." : "No players yet.") + "</p>";
+      return;
+    }
     var head = PLAYER_COLUMNS.map(function (c) {
-      return "<th class='sort " + (c[3] || "") + (c[1] === sortKey ? " on" + (sortUp ? " up" : "") : "") +
-        "' data-sort='" + c[1] + "'>" + esc(c[0]) + "</th>";
+      return c[1] ? "<th class='sort " + (c[3] || "") + (c[1] === sortKey ? " on" + (sortUp ? " up" : "") : "") +
+        "' data-sort='" + c[1] + "'>" + esc(c[0]) + "</th>" : "<th></th>";
     }).join("");
     var body = rows.map(function (p) {
-      return "<tr class='pick' data-player='" + esc(p.id) + "'>" + PLAYER_COLUMNS.map(function (c) {
+      return "<tr class='pick' data-player='" + esc(p.id) + "' title='Open " + esc(label(p)) + "'>" + PLAYER_COLUMNS.map(function (c) {
         return "<td class='" + (c[3] || "") + "'>" + (c[2] ? c[2](p) : esc(num(p[c[1]]))) + "</td>";
       }).join("") + "</tr>";
     }).join("");
@@ -474,8 +621,8 @@
     var rows = order.map(function (k) { return byEmail[k]; });
     $("deletions").innerHTML = rows.length ? table([
       ["Email", function (r) { return esc(r.email); }],
-      ["Asked to delete", function (r) { return r.asked ? when(r.last_asked) + (r.asked > 1 ? " (" + r.asked + " times)" : "") : "–"; }],
-      ["Deleted", function (r) { return r.deleted ? "<span class='lost'>" + when(r.deleted) + "</span>" : "no (stopped short)"; }],
+      ["Asked to delete", function (r) { return r.asked ? ago(r.last_asked) + (r.asked > 1 ? " (" + r.asked + " times)" : "") : "–"; }],
+      ["Deleted", function (r) { return r.deleted ? "<span class='lost'>" + ago(r.deleted) + "</span>" : "no (stopped short)"; }],
       ["Tried to come back", function (r) { return r.blocked ? r.blocked + " time" + (r.blocked > 1 ? "s" : "") : "–"; }],
       ["Status", function (r) {
         var b = blocked[r.email];
@@ -534,7 +681,7 @@
       ["Result", function (g) {
         return g.won ? "<span class='won'>Won in " + g.guesses.length + "</span>" : "<span class='lost'>Lost</span>";
       }],
-      ["Answer", function (g) { return "<span class='word'>" + esc(g.answers.join(" ")) + "</span>"; }],
+      ["Answer", function (g) { return answer(g.answers, g.daily); }],
       ["Guesses", function (g) {
         if (g.mode === "w") return g.guesses.map(function (x) { return tiles(x, g.answers[0]); }).join("");
         return "<span class='word'>" + esc(g.guesses.join(" ")) + "</span>";
@@ -573,7 +720,7 @@
       "<div class='grid2'>" + modeStats(d.games, "w") + modeStats(d.games, "q") + "</div>" +
       "<section class='card'><h2>In progress</h2>" + ((d.progress.length || d.practice.length) ? table([
         ["Game", function (g) { return (g.mode === "w" ? "Wordle" : "Quordle") + (g.daily != null ? " #" + g.daily : " practice"); }],
-        ["Answer", function (g) { return "<span class='word'>" + esc(g.answers.join(" ")) + "</span>"; }],
+        ["Answer", function (g) { return answer(g.answers, g.daily); }],
         ["Guesses so far", function (g) { return "<span class='word'>" + esc(g.guesses.join(" ")) + "</span>"; }],
         ["Started", function (g) { return when(g.started); }]], d.progress.concat(d.practice)) : "<p class='small'>Nothing unfinished.</p>") +
       "</section>" +
@@ -588,8 +735,37 @@
   }
   function closePlayer() { $("drawer").hidden = true; }
 
-  var last = null;
+  var last = null, loadedAt = 0, loading = false;
+  function showUpdated() {
+    var mins = Math.floor((Date.now() - loadedAt) / 60000);
+    $("updated").textContent = loadedAt ? "Updated " + (mins < 1 ? "just now" : mins + " min ago") : "";
+  }
+  setInterval(showUpdated, 30000);
+  // Fresh numbers when the page comes back to the front (after a minute) and every 5 minutes while it's open.
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && last && Date.now() - loadedAt > 60000) load();
+  });
+  setInterval(function () { if (document.visibilityState === "visible" && last) load(); }, 5 * 60000);
+
+  // ----- tabs (the choice is kept in the address, e.g. owner.html#players) ----------------------
+  var TABS = ["overview", "players", "puzzles", "insights", "people"];
+  function showTab(name) {
+    if (TABS.indexOf(name) < 0) name = "overview";
+    document.querySelectorAll("[data-view]").forEach(function (v) { v.hidden = v.dataset.view !== name; });
+    document.querySelectorAll("#tabs [data-tab]").forEach(function (b) { b.setAttribute("aria-selected", String(b.dataset.tab === name)); });
+    try {
+      if (location.hash.slice(1) !== name) history.replaceState(null, "", name === "overview" ? location.pathname + location.search : "#" + name);
+    } catch (e) { /* (a page opened from a file or data: address can't change its address) */ }
+    if (name === "overview" && last) chart(last.players_per_day);  // (its width is only known once shown)
+  }
+  window.addEventListener("hashchange", function () { showTab(location.hash.slice(1)); });
+
   async function load() {
+    if (loading) return;
+    loading = true;
+    try { await loadNow(); } finally { loading = false; }
+  }
+  async function loadNow() {
     $("error").textContent = "";
     var session = (await db.auth.getSession()).data.session;
     if (!session) { show("signin"); return; }
@@ -606,6 +782,7 @@
     last = s;
     show("dash");
     render(s);
+    showTab(location.hash.slice(1));
   }
 
   function say(text, ok) {
@@ -689,7 +866,7 @@
   function signOut() { db.auth.signOut().then(function () { show("signin"); }); }
   $("signout").addEventListener("click", signOut);
   $("signout-2").addEventListener("click", signOut);
-  $("refresh").addEventListener("click", load);
+  $("refresh").addEventListener("click", function () { $("updated").textContent = "Updating..."; load(); });
   $("ppd-toggle").addEventListener("click", function () {
     var showTable = $("ppd-table").hidden;
     $("ppd-table").hidden = !showTable;
@@ -698,7 +875,13 @@
   });
   window.addEventListener("resize", function () { if (last) chart(last.players_per_day); });
   $("player-search").addEventListener("input", function () { renderPlayers(); searchServer(); });
-  $("player-accounts").addEventListener("change", renderPlayers);
+  $("player-filter").addEventListener("click", function (event) {
+    var b = event.target.closest("[data-filter]");
+    if (!b) return;
+    filter = b.dataset.filter;
+    this.querySelectorAll("[data-filter]").forEach(function (x) { x.classList.toggle("on", x === b); });
+    renderPlayers();
+  });
   document.addEventListener("click", function (event) {
     var th = event.target.closest("th[data-sort]");
     if (th) {
@@ -707,6 +890,14 @@
       return;
     }
     if (event.target.id === "close" || event.target.id === "drawer") { closePlayer(); return; }
+    var tab = event.target.closest("#tabs [data-tab]");
+    if (tab) { showTab(tab.dataset.tab); return; }
+    var go = event.target.closest("[data-goto]");
+    if (go) { showTab(go.dataset.goto); window.scrollTo(0, 0); return; }
+    var spoiler = event.target.closest(".spoiler");
+    if (spoiler) { spoiler.classList.toggle("shown"); event.stopPropagation(); return; }
+    var more = event.target.closest("[data-more]");
+    if (more) { expanded[more.dataset.more] = !expanded[more.dataset.more]; if (last) render(last); return; }
     var reinstate = event.target.closest("[data-reinstate]");
     if (reinstate) {
       var email = reinstate.dataset.reinstate;
