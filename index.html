@@ -540,7 +540,42 @@ function show_infobox() {
                     cover();
                 }
             }
-            window.addEventListener("storage", function (event) { if (event.key === key) check(); });
+            // An older copy of the game from before this one-tab rule (a tab or window left open since)
+            // doesn't step aside: it keeps saving its own, older copy over this one. This tab can't stop
+            // it, so say so (the newer tabs that stepped aside never save, so a save from elsewhere means
+            // an old one; two within a minute, so a tab handing over doesn't count).
+            var historyKey = "wordle " + location.pathname + " history", foreign = [];
+            function oldTab() {
+                if (document.getElementById("wordle-old-tab")) return;
+                var bar = document.createElement("div");
+                bar.id = "wordle-old-tab";
+                bar.style.cssText = "position:fixed;left:8px;right:8px;top:8px;z-index:2147482000;background:#b4532a;" +
+                    "color:#fff;border-radius:12px;padding:12px 14px;font:15px -apple-system,Helvetica,sans-serif;" +
+                    "display:flex;gap:10px;align-items:center;touch-action:auto";
+                var text = document.createElement("div");
+                text.style.cssText = "flex:1";
+                text.textContent = "An older copy of Wordle is open in another tab or window. Close it, or it may " +
+                    "undo what you do here (like signing out).";
+                var close = document.createElement("button");
+                close.textContent = "OK";
+                close.style.cssText = "border:0;border-radius:8px;padding:8px 12px;font:bold 15px -apple-system," +
+                    "Helvetica,sans-serif;background:#fff;color:#b4532a";
+                close.addEventListener("click", function () { bar.remove(); });
+                ["touchstart", "touchend", "keydown", "keyup"].forEach(function (name) {
+                    bar.addEventListener(name, function (event) { event.stopPropagation(); });
+                });
+                bar.appendChild(text);
+                bar.appendChild(close);
+                document.body.appendChild(bar);
+            }
+            window.addEventListener("storage", function (event) {
+                if (event.key === key) { check(); return; }
+                if (event.key !== historyKey || window.wordleInactive) return;
+                var now = Date.now();
+                foreign = foreign.filter(function (t) { return now - t < 60000; });
+                foreign.push(now);
+                if (foreign.length >= 2) oldTab();
+            });
             // (A tab kept in the back-forward cache, or asleep in the background, misses the event.)
             window.addEventListener("pageshow", check);
             document.addEventListener("visibilitychange", function () {
