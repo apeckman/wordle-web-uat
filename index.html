@@ -429,9 +429,10 @@ function show_infobox() {
             } catch (e) { return null; }
         }
         function wordleShareText(text) {
-            // Phones get the share sheet (Messages, WhatsApp...); computers copy to the clipboard.
-            var phone = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
-            if (!(phone && navigator.share)) { wordleCopy(text); return; }
+            // The share sheet (Messages, Mail, WhatsApp...) wherever the browser has one: phones, Safari
+            // and Edge on computers, Chrome on Windows and newer Macs. Otherwise (Firefox, say) copy it.
+            var canShare = navigator.share && (!navigator.canShare || navigator.canShare({ text: text }));
+            if (!canShare) { wordleCopy(text); return; }
             var via = wordleSharePending ? wordleFreshShare() : null;
             var attempt;
             try {

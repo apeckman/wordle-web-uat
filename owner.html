@@ -357,10 +357,13 @@
     else text = d.toLocaleDateString([], { month: "short", day: "numeric" });
     return "<span title='" + esc(d.toLocaleString()) + "'>" + esc(text) + "</span>";
   }
-  function answer(words, daily) {
+  function spoils(daily) { return daily != null && daily >= todayNumber(); }
+  function hidden(html, daily) {
     // Today's (and any later) daily answers start blurred, so the page doesn't spoil the owner's own game.
-    var text = "<span class='word'>" + esc((words || []).join(" ")) + "</span>";
-    return daily != null && daily >= todayNumber() ? "<span class='spoiler' title='Click to show'>" + text + "</span>" : text;
+    return spoils(daily) ? "<span class='spoiler' title='Click to show'>" + html + "</span>" : html;
+  }
+  function answer(words, daily) {
+    return hidden("<span class='word'>" + esc((words || []).join(" ")) + "</span>", daily);
   }
   function pct(value) { return value == null ? "–" : Math.round(Number(value)) + "%"; }
   var modeName = function (m) { return m === "w" ? "Wordle" : "Quordle"; };
@@ -695,7 +698,7 @@
         return g.won ? "<span class='won'>Won in " + g.guesses.length + "</span>" : "<span class='lost'>Lost</span>";
       }],
       ["Answer", function (g) { return answer(g.answers, g.daily); }],
-      ["Guesses", function (g) { return guessList(g); }],
+      ["Guesses", function (g) { return hidden(guessList(g), g.daily); }],  // (the colours give the answer away)
       ["Hints", "hints", "num"],
       ["On the day", function (g) { return g.daily == null ? "" : puzzleNumber(g.played_on) === g.daily ? "yes" : "archive"; }],
       ["From", "site"]], games);
@@ -905,7 +908,12 @@
     var go = event.target.closest("[data-goto]");
     if (go) { showTab(go.dataset.goto); window.scrollTo(0, 0); return; }
     var spoiler = event.target.closest(".spoiler");
-    if (spoiler) { spoiler.classList.toggle("shown"); event.stopPropagation(); return; }
+    if (spoiler) {
+      // A game's answer and guesses show (and hide) together.
+      var row = spoiler.closest("tr"), show = !spoiler.classList.contains("shown");
+      (row ? row.querySelectorAll(".spoiler") : [spoiler]).forEach(function (s) { s.classList.toggle("shown", show); });
+      event.stopPropagation(); return;
+    }
     var more = event.target.closest("[data-more]");
     if (more) { expanded[more.dataset.more] = !expanded[more.dataset.more]; if (last) render(last); return; }
     var reinstate = event.target.closest("[data-reinstate]");
