@@ -492,6 +492,61 @@ function show_infobox() {
             if (text !== null) wordleShareText(text);
         }, true);
 
+        // One tab at a time: every tab keeps its own copy of the saved games and writes it back, so two
+        // tabs of the game would overwrite each other (a sign-out in one undone by the other). The newest
+        // tab wins (so an invite link opened from a text works there); an older one stops (gui.py frame,
+        // history.BrowserStorage.inactive) and offers "Use it here", which reloads it with the latest.
+        window.wordleInactive = false;
+        (function () {
+            var key = "wordle " + location.pathname + " active tab";
+            var me = Date.now().toString(36) + Math.random().toString(36).slice(2);
+            try { localStorage.setItem(key, me); } catch (e) { return; }
+            function cover() {
+                if (document.getElementById("wordle-other-tab")) return;
+                var box = document.createElement("div");
+                box.id = "wordle-other-tab";
+                box.style.cssText = "position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;" +
+                    "justify-content:center;background:rgba(15,18,27,0.94);font:16px -apple-system,Helvetica,sans-serif;" +
+                    "touch-action:auto";
+                var panel = document.createElement("div");
+                panel.style.cssText = "background:#212636;color:#eceff4;border-radius:16px;padding:22px;" +
+                    "width:min(84vw,380px);text-align:center";
+                var title = document.createElement("div");
+                title.textContent = "Wordle is open in another tab";
+                title.style.cssText = "font-weight:bold;font-size:18px;margin-bottom:8px";
+                var text = document.createElement("div");
+                text.textContent = "So your games stay in step, the game runs in one tab at a time.";
+                text.style.cssText = "color:#a3abc2;margin-bottom:16px";
+                var use = document.createElement("button");
+                use.textContent = "Use it here";
+                use.style.cssText = "width:100%;padding:13px;border:0;border-radius:10px;color:#eceff4;" +
+                    "background:#2ea06b;font:bold 16px -apple-system,Helvetica,sans-serif";
+                use.addEventListener("click", function () { location.reload(); });
+                panel.appendChild(title);
+                panel.appendChild(text);
+                panel.appendChild(use);
+                box.appendChild(panel);
+                ["touchstart", "touchend", "keydown", "keyup"].forEach(function (name) {
+                    box.addEventListener(name, function (event) { event.stopPropagation(); });
+                });
+                document.body.appendChild(box);
+            }
+            function check() {
+                var active = null;
+                try { active = localStorage.getItem(key); } catch (e) {}
+                if (active && active !== me && !window.wordleInactive) {
+                    window.wordleInactive = true;
+                    cover();
+                }
+            }
+            window.addEventListener("storage", function (event) { if (event.key === key) check(); });
+            // (A tab kept in the back-forward cache, or asleep in the background, misses the event.)
+            window.addEventListener("pageshow", check);
+            document.addEventListener("visibilitychange", function () {
+                if (document.visibilityState === "visible") check();
+            });
+        })();
+
         // Back in view (switched back to the tab or the home-screen app) or back online: the game
         // syncs straight away (gui.py poll_woke), so games played on another device show up.
         window.wordleWoke = false;
