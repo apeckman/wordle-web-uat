@@ -556,6 +556,7 @@ function show_infobox() {
         });
         window.addEventListener("pageshow", function () { window.wordleWoke = true; });
         window.addEventListener("online", function () { window.wordleWoke = true; });
+        window.addEventListener("focus", function () { window.wordleWoke = true; });  // (a computer: back to this window)
 
         // Sync (sync.py BrowserTransport): the browser's Python has no sockets or threads, so the page
         // makes the request and keeps the answer, as JSON {status, text}, until the game takes it.
