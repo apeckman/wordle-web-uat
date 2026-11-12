@@ -758,6 +758,10 @@ function show_infobox() {
             if (!wordleAuth || wordleAuth.mode !== spec.mode || wordleAuth.purpose !== spec.purpose) wordleAuthBuild(spec);
             var a = wordleAuth;
             a.error.textContent = spec.error || "";
+            a.error.style.display = spec.error ? "block" : "none";
+            if (a.email && !a.email.readOnly) {
+                a.email.style.borderColor = spec.error && /email/i.test(spec.error) ? "#e5484d" : "#323850";
+            }
             a.note.textContent = spec.note || "";
             a.submit.disabled = !!spec.busy;
             a.submit.textContent = spec.busy ? "One moment..." : a.label;
@@ -797,6 +801,7 @@ function show_infobox() {
             });
             var form = document.createElement("form");
             form.autocomplete = "on";
+            form.noValidate = true;  // (sync.py checks what's typed and says what's wrong in a.error, in red)
             form.style.cssText = "background:#212636;color:#eceff4;border-radius:16px;padding:20px;width:min(88vw,420px);" +
                 "box-sizing:border-box;margin:16px";
             function text(content, css) {
@@ -847,7 +852,9 @@ function show_infobox() {
                 a.code = input("text", "code", "one-time-code", "6-digit code",
                                {inputmode: "numeric", pattern: "[0-9]*", maxlength: "8"});
             }
-            a.error = text("", "color:#ee9664;font-size:14px;margin:6px 0;min-height:0");
+            a.error = text("", "display:none;color:#ff8f8f;background:rgba(229,72,77,0.16);border:1px solid #e5484d;" +
+                           "border-radius:10px;padding:9px 12px;font-size:15px;font-weight:600;margin:8px 0");
+            a.error.setAttribute("role", "alert");
             a.note = text("", "color:#60c891;font-size:14px;margin:6px 0;min-height:0");
             a.submit = document.createElement("button");
             a.submit.type = "submit";
@@ -876,6 +883,10 @@ function show_infobox() {
                 window.wordleAuthEvent = JSON.stringify({action: action, email: a.email ? a.email.value : "",
                     password: a.password ? a.password.value : "", code: a.code ? a.code.value : ""});
             }
+            form.addEventListener("input", function () {  // (fixing it: the red box goes until the next try)
+                a.error.style.display = "none";
+                if (a.email && !a.email.readOnly) a.email.style.borderColor = "#323850";
+            });
             form.addEventListener("submit", function (e) {
                 e.preventDefault();
                 post(actions[mode]);
