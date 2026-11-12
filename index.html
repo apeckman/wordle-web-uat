@@ -593,6 +593,54 @@ function show_infobox() {
         window.addEventListener("online", function () { window.wordleWoke = true; });
         window.addEventListener("focus", function () { window.wordleWoke = true; });  // (a computer: back to this window)
 
+        // New releases while the page is open: a tab or home-screen app left open keeps running the
+        // version it loaded (sw.js only swaps versions at launch), so it would miss what a release adds.
+        // The page asks for version.json when it loads, when it comes back into view and every 15
+        // minutes; once a newer version is out, the game reloads at a quiet moment (gui.py
+        // reload_for_release: on the menu, nothing open or on its way). It can't loop: it only reloads
+        // for a version newer than the one it loaded (after the reload that's the one it loads), and
+        // only once per version (remembered in localStorage; no localStorage, no reload).
+        window.wordleRelease = { loaded: "", latest: "", at: 0 };
+
+        function wordleReleaseCheck() {
+            var r = window.wordleRelease, now = Date.now();
+            if (window.wordleInactive || !window.fetch || now - r.at < 60000) return;
+            r.at = now;
+            fetch("version.json?t=" + now, { cache: "no-store" }).then(function (response) {
+                return response.ok ? response.json() : null;
+            }).then(function (release) {
+                var version = release && typeof release.version === "string" ? release.version : "";
+                if (!version) return;
+                if (!r.loaded) r.loaded = version;  // (the release this page is running)
+                else r.latest = version;
+            }).catch(function () {});
+        }
+
+        function wordleNewRelease() {
+            var r = window.wordleRelease;
+            return !window.wordleInactive && r.loaded && r.latest && r.latest !== r.loaded ? r.latest : "";
+        }
+
+        function wordleReloadFor(version) {
+            var key = "wordle " + location.pathname + " reloaded for";
+            try {
+                if (!version || localStorage.getItem(key) === version) return false;
+                localStorage.setItem(key, version);
+            } catch (e) {
+                return false;
+            }
+            location.reload();
+            return true;
+        }
+
+        wordleReleaseCheck();
+        setInterval(function () { window.wordleRelease.at = 0; wordleReleaseCheck(); }, 15 * 60 * 1000);
+        document.addEventListener("visibilitychange", function () {
+            if (document.visibilityState === "visible") wordleReleaseCheck();
+        });
+        window.addEventListener("pageshow", wordleReleaseCheck);
+        window.addEventListener("online", wordleReleaseCheck);
+
         // Push updates (sync.py nudged): while signed in, listen on the account's own Supabase Realtime
         // broadcast channel (its random name comes from the server, gui.py publish_push calls
         // wordlePush) for "something changed" nudges. They hold no game data: the game just syncs at once
