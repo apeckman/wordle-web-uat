@@ -593,6 +593,87 @@ function show_infobox() {
         window.addEventListener("online", function () { window.wordleWoke = true; });
         window.addEventListener("focus", function () { window.wordleWoke = true; });  // (a computer: back to this window)
 
+        // Watchdog (Nov 2026): when the game stops answering, note what it was, for the server's log
+        // (gui.py watch() takes the notes every 5 s and sends them; the client_logs query in CLAUDE.md
+        // reads them): frames that stopped while the page was on screen, the page itself blocked (its
+        // timers ran late), taps on the game that never reached it, and a page that was stuck on screen
+        // and then reloaded or closed. The notes wait in localStorage until a page of the game takes
+        // them, so a reload doesn't lose them.
+        window.wordleBeat = 0;  // gui.py watch(): the game's frame count and the taps it got, every half second
+        window.wordleTaps = 0;
+        (function () {
+            var notesKey = "wordle " + location.pathname + " watch", aliveKey = notesKey + " alive";
+            function read(key) { try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (e) { return null; } }
+            function write(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
+            function note(text) {
+                var notes = read(notesKey);
+                notes = Array.isArray(notes) ? notes : [];
+                notes.push(new Date().toISOString().slice(11, 19) + " " + text);
+                write(notesKey, notes.slice(-10));
+            }
+            window.wordleWatchTake = function () {
+                var notes = read(notesKey);
+                try { localStorage.removeItem(notesKey); } catch (e) {}
+                return JSON.stringify(Array.isArray(notes) ? notes : []);
+            };
+            function on() { return document.visibilityState === "visible" && !window.wordleInactive; }
+            // The page before this one: on screen at its last sign of life and gone without closing
+            // normally (no pagehide), soon before this one opened: it was stuck, then reloaded or closed.
+            var before = read(aliveKey), now = Date.now();
+            if (before && before.on && !before.closed && now - before.at < 5 * 60 * 1000) {
+                note("the page before this one stopped answering on screen (" + (before.stalled ?
+                     "no frames for " + before.stalled + " s" : "page blocked") + ", " +
+                     Math.round((now - before.at) / 1000) + " s before this load), then was reloaded or closed");
+            }
+            var beat = -1, beatAt = now, tick = now, wasOn = on(), stalled = false, taps = -1, tapsAt = now,
+                tapsNoted = 0, touches = [];
+            function alive(closed) {
+                write(aliveKey, { at: Date.now(), on: on(), closed: closed,
+                                  stalled: stalled ? Math.round((Date.now() - beatAt) / 1000) : 0 });
+            }
+            document.addEventListener("touchstart", function (event) {
+                if (event.target && event.target.tagName === "CANVAS") touches.push(Date.now());  // (taps on the game)
+            }, { capture: true, passive: true });
+            function back() {  // (hidden time doesn't count: frames and timers stop in the background)
+                beatAt = tick = Date.now();
+                wasOn = on();
+                alive(false);
+            }
+            document.addEventListener("visibilitychange", back);
+            window.addEventListener("pageshow", back);
+            window.addEventListener("pagehide", function () { alive(true); });
+            setInterval(function () {
+                var now = Date.now(), live = on();
+                if (live && wasOn && now - tick > 4000) {
+                    note("the page was blocked for " + Math.round((now - tick) / 1000) + " s");
+                    beatAt = now;  // (the game couldn't draw either: that's not frames stopping)
+                }
+                if (live && !wasOn) beatAt = now;  // (just back on screen: the time away doesn't count)
+                if (window.wordleBeat !== beat) {
+                    if (stalled) note("frames came back after " + Math.round((now - beatAt) / 1000) + " s");
+                    beat = window.wordleBeat;
+                    beatAt = now;
+                    stalled = false;
+                } else if (live && beat > 0 && !stalled && now - beatAt > 4000) {
+                    stalled = true;
+                    note("frames stopped on screen");
+                }
+                if (window.wordleTaps !== taps) {
+                    taps = window.wordleTaps;
+                    tapsAt = now;
+                }
+                touches = touches.filter(function (t) { return now - t < 8000; });
+                var lost = touches.filter(function (t) { return t > tapsAt && now - t > 1000; }).length;
+                if (live && beat > 0 && lost >= 4 && now - tapsNoted > 60000) {
+                    tapsNoted = now;
+                    note(lost + " taps on the game in 8 s never reached it" + (stalled ? " (no frames)" : ""));
+                }
+                wasOn = live;
+                tick = now;
+                alive(false);
+            }, 1000);
+        })();
+
         // New releases while the page is open: a tab or home-screen app left open keeps running the
         // version it loaded (sw.js only swaps versions at launch), so it would miss what a release adds.
         // The page asks for version.json when it loads, when it comes back into view and every 15
