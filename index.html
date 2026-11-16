@@ -453,8 +453,28 @@ function show_infobox() {
 
         function wordleShareAt(clientX, clientY) {
             // The text of the Share button at this point on the page, or null.
+            return wordleTargetAt(window.wordleShareTargets, clientX, clientY);
+        }
+
+        // Saying a word out loud (gui.py publish_say_targets): like sharing, iPhone Safari only speaks
+        // from inside the tap, so the game says where its "?" buttons are, with their words.
+        window.wordleSayTargets = "";  // JSON [[x, y, width, height, word], ...] in canvas pixels
+        function wordleSay(word) {
+            try {
+                var synth = window.speechSynthesis;
+                if (!synth || !window.SpeechSynthesisUtterance) return;
+                if (synth.speaking || synth.pending) synth.cancel();
+                var said = new SpeechSynthesisUtterance(word.toLowerCase());  // (capitals get spelled out)
+                said.lang = "en-US";
+                said.rate = 0.9;
+                synth.speak(said);
+            } catch (e) {}
+        }
+
+        function wordleTargetAt(json, clientX, clientY) {
+            // The text of the target at this point on the page, or null.
             var targets;
-            try { targets = JSON.parse(window.wordleShareTargets || "[]"); } catch (e) { return null; }
+            try { targets = JSON.parse(json || "[]"); } catch (e) { return null; }
             var canvas = document.getElementById("canvas");
             if (!targets.length || !canvas) return null;
             var box = canvas.getBoundingClientRect();
@@ -470,12 +490,13 @@ function show_infobox() {
         // Phones: act on the finger lifting. iPhone Safari sends no "click" for taps on a plain
         // element like the game's canvas, so a click listener alone never fires there. The touch must
         // start and end on the same button (a drag that ends on it doesn't count).
-        var wordleTouchStart = null, wordleTouchHandled = 0;
+        var wordleTouchStart = null, wordleTouchHandled = 0, wordleSayStart = null, wordleSayHandled = 0;
         window.wordleTouchCount = 0;  // every touch the page sees (the ?debug=1 readout compares it with the game's)
         document.addEventListener("touchstart", function () { window.wordleTouchCount++; }, { capture: true, passive: true });
         document.addEventListener("touchstart", function (event) {
             var touch = event.touches && event.touches[0];
             wordleTouchStart = touch ? wordleShareAt(touch.clientX, touch.clientY) : null;
+            wordleSayStart = touch ? wordleTargetAt(window.wordleSayTargets, touch.clientX, touch.clientY) : null;
         }, { capture: true, passive: true });
         document.addEventListener("touchend", function (event) {
             var touch = event.changedTouches && event.changedTouches[0];
@@ -484,13 +505,23 @@ function show_infobox() {
                 wordleTouchHandled = Date.now();
                 wordleShareText(text);
             }
-            wordleTouchStart = null;
+            var word = touch ? wordleTargetAt(window.wordleSayTargets, touch.clientX, touch.clientY) : null;
+            if (word !== null && word === wordleSayStart) {
+                wordleSayHandled = Date.now();
+                wordleSay(word);
+            }
+            wordleTouchStart = wordleSayStart = null;
         }, { capture: true, passive: true });
         // Mouse and trackpad.
         document.addEventListener("click", function (event) {
             if (Date.now() - wordleTouchHandled < 1000) return;  // the same tap, already shared
             var text = wordleShareAt(event.clientX, event.clientY);
             if (text !== null) wordleShareText(text);
+        }, true);
+        document.addEventListener("click", function (event) {
+            if (Date.now() - wordleSayHandled < 1000) return;  // the same tap, already said
+            var word = wordleTargetAt(window.wordleSayTargets, event.clientX, event.clientY);
+            if (word !== null) wordleSay(word);
         }, true);
 
         // One tab at a time: every tab keeps its own copy of the saved games and writes it back, so two
