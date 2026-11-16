@@ -539,7 +539,11 @@ function show_infobox() {
                 wordlePictureStep("shared", "picture shared");
             }, function (error) {
                 wordlePictureStep("share " + wordleError(error));
-                if (error && error.name === "AbortError") window.wordleShareStatus = "picture cancelled";
+                // Chrome on a Mac calls off a picture share by itself ("AbortError: Share canceled", a second
+                // after the tap, nothing shown: Nov 2026), so on a computer copy it instead; on a phone a
+                // cancel is the player closing the share sheet.
+                var phone = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+                if (error && error.name === "AbortError" && phone) window.wordleShareStatus = "picture cancelled";
                 else wordleCopyPicture(file);
             }).then(function () {
                 if (via) via.done(); else wordleSharePending = false;
