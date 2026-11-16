@@ -519,6 +519,15 @@ function show_infobox() {
             if (!file) { wordlePictureStep("no picture from the game", "picture failed"); return; }
             wordlePictureStep(Math.round(file.size / 1024) + " kB");
             var data = { files: [file] };
+            var phone = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+            if (!phone && /Chrome\/|Chromium\/|Edg\//.test(navigator.userAgent)) {
+                // Chrome (and Edge) on a computer: copy it right away, inside the tap. Their share window
+                // calls off a picture by itself or never answers (Mac Chrome, Nov 2026), and copying
+                // after that, outside the tap, makes Chrome ask first or fall back to a download.
+                wordlePictureStep("computer Chrome: copy");
+                wordleCopyPicture(file);
+                return;
+            }
             var canShare = false;
             try { canShare = !!(navigator.share && navigator.canShare && navigator.canShare(data)); } catch (e) {}
             if (!canShare) {
@@ -542,7 +551,6 @@ function show_infobox() {
                 // Chrome on a Mac calls off a picture share by itself ("AbortError: Share canceled", a second
                 // after the tap, nothing shown: Nov 2026), so on a computer copy it instead; on a phone a
                 // cancel is the player closing the share sheet.
-                var phone = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
                 if (error && error.name === "AbortError" && phone) window.wordleShareStatus = "picture cancelled";
                 else wordleCopyPicture(file);
             }).then(function () {
