@@ -428,12 +428,15 @@ function show_infobox() {
                     setTimeout(function () { frame.remove(); }, 1000); } };
             } catch (e) { return null; }
         }
-        function wordleShareWith(data, fallback) {
-            // navigator.share (from a fresh frame if the last share never answered); fallback() if it's refused.
+        function wordleShareText(text) {
+            // The share sheet (Messages, Mail, WhatsApp...) wherever the browser has one: phones, Safari
+            // and Edge on computers, Chrome on Windows and newer Macs. Otherwise (Firefox, say) copy it.
+            var canShare = navigator.share && (!navigator.canShare || navigator.canShare({ text: text }));
+            if (!canShare) { wordleCopy(text); return; }
             var via = wordleSharePending ? wordleFreshShare() : null;
             var attempt;
             try {
-                attempt = via ? via.share(data) : navigator.share(data);
+                attempt = via ? via.share({ text: text }) : navigator.share({ text: text });
             } catch (e) {
                 attempt = Promise.reject(e);
             }
@@ -442,117 +445,7 @@ function show_infobox() {
                 window.wordleShareStatus = "shared";
             }, function (error) {
                 if (error && error.name === "AbortError") window.wordleShareStatus = "cancelled";
-                else fallback();
-            }).then(function () {
-                if (via) via.done(); else wordleSharePending = false;
-            });
-        }
-        function wordleShareText(text) {
-            // The share sheet (Messages, Mail, WhatsApp...) wherever the browser has one: phones, Safari
-            // and Edge on computers, Chrome on Windows and newer Macs. Otherwise (Firefox, say) copy it.
-            if (text === "[picture]") { wordleSharePicture(); return; }  // (gui.py PICTURE)
-            var canShare = navigator.share && (!navigator.canShare || navigator.canShare({ text: text }));
-            if (!canShare) { wordleCopy(text); return; }
-            wordleShareWith({ text: text }, function () { wordleCopy(text); });
-        }
-
-        // The board picture (gui.py publish_picture): a PNG the game hands over as base64 before the tap,
-        // shared as a file wherever the browser can (phones, Safari, Edge, newer Chrome), else copied as
-        // an image, else downloaded.
-        window.wordleShareImage = "";
-        window.wordleShareDetail = "";  // the steps of the last picture share, for the game's log
-        var wordlePictureFile = null, wordlePictureFor = "";
-        function wordlePicture() {
-            var data = window.wordleShareImage || "";
-            if (!data) return null;
-            if (data !== wordlePictureFor) {
-                try {
-                    var bin = atob(data), bytes = new Uint8Array(bin.length);
-                    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-                    wordlePictureFile = new File([bytes], "wordle.png", { type: "image/png" });
-                    wordlePictureFor = data;
-                } catch (e) { return null; }
-            }
-            return wordlePictureFile;
-        }
-        function wordlePictureStep(step, status) {
-            window.wordleShareDetail += (window.wordleShareDetail ? "; " : "") + step;
-            if (status) window.wordleShareStatus = status;
-        }
-        function wordleError(error) {
-            return error ? ((error.name || "Error") + (error.message ? " " + String(error.message).slice(0, 80) : "")) : "?";
-        }
-        function wordleSavePicture(file) {
-            try {
-                var url = URL.createObjectURL(file), link = document.createElement("a");
-                link.href = url;
-                link.download = file.name;
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-                setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
-                wordlePictureStep("download started", "picture saved");
-            } catch (e) { wordlePictureStep("download " + wordleError(e), "picture failed"); }
-        }
-        function wordleCopyPicture(file) {
-            if (navigator.clipboard && navigator.clipboard.write && window.ClipboardItem) {
-                var copying;
-                try {
-                    copying = navigator.clipboard.write([new ClipboardItem({ "image/png": file })]);
-                } catch (e) {
-                    copying = Promise.reject(e);
-                }
-                copying.then(function () {
-                    wordlePictureStep("copied", "picture copied");
-                }, function (error) {
-                    wordlePictureStep("copy " + wordleError(error));
-                    wordleSavePicture(file);
-                });
-            } else {
-                wordlePictureStep("no image clipboard");
-                wordleSavePicture(file);
-            }
-        }
-        function wordleSharePicture() {
-            window.wordleShareDetail = "";
-            var file = wordlePicture();
-            if (!file) { wordlePictureStep("no picture from the game", "picture failed"); return; }
-            wordlePictureStep(Math.round(file.size / 1024) + " kB");
-            var data = { files: [file] };
-            var phone = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
-            if (!phone && /Chrome\/|Chromium\/|Edg\//.test(navigator.userAgent)) {
-                // Chrome (and Edge) on a computer: copy it right away, inside the tap. Their share window
-                // calls off a picture by itself or never answers (Mac Chrome, Nov 2026), and copying
-                // after that, outside the tap, makes Chrome ask first or fall back to a download.
-                wordlePictureStep("computer Chrome: copy");
-                wordleCopyPicture(file);
-                return;
-            }
-            var canShare = false;
-            try { canShare = !!(navigator.share && navigator.canShare && navigator.canShare(data)); } catch (e) {}
-            if (!canShare) {
-                wordlePictureStep(navigator.share ? "can't share files" : "no share sheet");
-                wordleCopyPicture(file);
-                return;
-            }
-            var via = wordleSharePending ? wordleFreshShare() : null;
-            wordlePictureStep(via ? "share (fresh frame)" : "share");
-            var attempt;
-            try {
-                attempt = via ? via.share(data) : navigator.share(data);
-            } catch (e) {
-                attempt = Promise.reject(e);
-            }
-            if (!via) wordleSharePending = true;
-            attempt.then(function () {
-                wordlePictureStep("shared", "picture shared");
-            }, function (error) {
-                wordlePictureStep("share " + wordleError(error));
-                // Chrome on a Mac calls off a picture share by itself ("AbortError: Share canceled", a second
-                // after the tap, nothing shown: Nov 2026), so on a computer copy it instead; on a phone a
-                // cancel is the player closing the share sheet.
-                if (error && error.name === "AbortError" && phone) window.wordleShareStatus = "picture cancelled";
-                else wordleCopyPicture(file);
+                else wordleCopy(text);
             }).then(function () {
                 if (via) via.done(); else wordleSharePending = false;
             });
@@ -583,7 +476,6 @@ function show_infobox() {
         document.addEventListener("touchstart", function (event) {
             var touch = event.touches && event.touches[0];
             wordleTouchStart = touch ? wordleShareAt(touch.clientX, touch.clientY) : null;
-            if (wordleTouchStart === "[picture]") wordlePicture();
         }, { capture: true, passive: true });
         document.addEventListener("touchend", function (event) {
             var touch = event.changedTouches && event.changedTouches[0];
