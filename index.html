@@ -599,6 +599,25 @@ function show_infobox() {
         // timers ran late), taps on the game that never reached it, and a page that was stuck on screen
         // and then reloaded or closed. The notes wait in localStorage until a page of the game takes
         // them, so a reload doesn't lose them.
+        // When each step of this launch was done (ms since the page opened), for the "started" note in the
+        // server's log (gui.py boot_steps): pygbag's loader, the Python runtime, Python itself running
+        // (it fetches cpythonrc.py), the game's files and the pygame package being fetched.
+        window.wordleBootTimes = function () {
+            var out = {}, steps = [["loader", /\/pythons\.js$/, "responseEnd"], ["runtime", /\/main\.wasm$/, "responseEnd"],
+                                   ["python", /\/cpythonrc\.py$/, "startTime"], ["files", /\/web-app\.tar\.gz$/, "startTime"],
+                                   ["pygame_pkg", /\/pygame_ce-[^\/]*\.whl/, "startTime"]];
+            try {
+                var nav = performance.getEntriesByType("navigation")[0];
+                if (nav) out.html = Math.round(nav.responseEnd);
+                performance.getEntriesByType("resource").forEach(function (entry) {
+                    steps.forEach(function (step) {
+                        if (!(step[0] in out) && step[1].test(entry.name)) out[step[0]] = Math.round(entry[step[2]]);
+                    });
+                });
+            } catch (e) {}
+            return JSON.stringify(out);
+        };
+
         window.wordleBeat = 0;  // gui.py watch(): the game's frame count and the taps it got, every half second
         window.wordleTaps = 0;
         (function () {
@@ -617,6 +636,10 @@ function show_infobox() {
                 return JSON.stringify(Array.isArray(notes) ? notes : []);
             };
             function on() { return document.visibilityState === "visible" && !window.wordleInactive; }
+            // Gaps are measured on the page's own clock, which stops while the computer or phone sleeps
+            // (the wall clock doesn't: a Mac waking up looked like a page blocked for seconds). The
+            // record for the next page keeps wall-clock times, since each page's own clock starts at 0.
+            function mono() { return window.performance && performance.now ? performance.now() : Date.now(); }
             // The page before this one: on screen at its last sign of life and gone without closing
             // normally (no pagehide), soon before this one opened: it was stuck, then reloaded or closed.
             var before = read(aliveKey), now = Date.now();
@@ -625,17 +648,17 @@ function show_infobox() {
                      "no frames for " + before.stalled + " s" : "page blocked") + ", " +
                      Math.round((now - before.at) / 1000) + " s before this load), then was reloaded or closed");
             }
-            var beat = -1, beatAt = now, tick = now, wasOn = on(), stalled = false, taps = -1, tapsAt = now,
-                tapsNoted = 0, touches = [];
+            var start = mono(), beat = -1, beatAt = start, tick = start, wasOn = on(), stalled = false, taps = -1,
+                tapsAt = start, tapsNoted = -Infinity, touches = [];
             function alive(closed) {
                 write(aliveKey, { at: Date.now(), on: on(), closed: closed,
-                                  stalled: stalled ? Math.round((Date.now() - beatAt) / 1000) : 0 });
+                                  stalled: stalled ? Math.round((mono() - beatAt) / 1000) : 0 });
             }
             document.addEventListener("touchstart", function (event) {
-                if (event.target && event.target.tagName === "CANVAS") touches.push(Date.now());  // (taps on the game)
+                if (event.target && event.target.tagName === "CANVAS") touches.push(mono());  // (taps on the game)
             }, { capture: true, passive: true });
             function back() {  // (hidden time doesn't count: frames and timers stop in the background)
-                beatAt = tick = Date.now();
+                beatAt = tick = mono();
                 wasOn = on();
                 alive(false);
             }
@@ -643,7 +666,7 @@ function show_infobox() {
             window.addEventListener("pageshow", back);
             window.addEventListener("pagehide", function () { alive(true); });
             setInterval(function () {
-                var now = Date.now(), live = on();
+                var now = mono(), live = on();
                 if (live && wasOn && now - tick > 4000) {
                     note("the page was blocked for " + Math.round((now - tick) / 1000) + " s");
                     beatAt = now;  // (the game couldn't draw either: that's not frames stopping)
