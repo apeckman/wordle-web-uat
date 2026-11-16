@@ -457,7 +457,9 @@ function show_infobox() {
         }
 
         // Saying a word out loud (gui.py publish_say_targets): like sharing, iPhone Safari only speaks
-        // from inside the tap, so the game says where its "?" buttons are, with their words.
+        // from inside the tap, so the game says where its "?" buttons are, with their words. The game
+        // opens the definition as the finger (or mouse button) goes down, which takes that "?" off the
+        // list (tapping it again closes it) before the finger lifts, so the spot is kept from the start.
         window.wordleSayTargets = "";  // JSON [[x, y, width, height, word], ...] in canvas pixels
         function wordleSay(word) {
             try {
@@ -471,32 +473,42 @@ function show_infobox() {
             } catch (e) {}
         }
 
-        function wordleTargetAt(json, clientX, clientY) {
-            // The text of the target at this point on the page, or null.
-            var targets;
-            try { targets = JSON.parse(json || "[]"); } catch (e) { return null; }
+        function wordleOnTarget(t, clientX, clientY) {
+            // Is this point on the page inside target t ([x, y, width, height, text] in canvas pixels)?
             var canvas = document.getElementById("canvas");
-            if (!targets.length || !canvas) return null;
+            if (!canvas) return false;
             var box = canvas.getBoundingClientRect();
             var x = (clientX - box.left) * canvas.width / box.width;
             var y = (clientY - box.top) * canvas.height / box.height;
+            return x >= t[0] && x < t[0] + t[2] && y >= t[1] && y < t[1] + t[3];
+        }
+
+        function wordleTargetHit(json, clientX, clientY) {
+            // The target at this point on the page, or null.
+            var targets;
+            try { targets = JSON.parse(json || "[]"); } catch (e) { return null; }
             for (var i = 0; i < targets.length; i++) {
-                var t = targets[i];
-                if (x >= t[0] && x < t[0] + t[2] && y >= t[1] && y < t[1] + t[3]) return t[4];
+                if (wordleOnTarget(targets[i], clientX, clientY)) return targets[i];
             }
             return null;
+        }
+
+        function wordleTargetAt(json, clientX, clientY) {
+            // The text of the target at this point on the page, or null.
+            var t = wordleTargetHit(json, clientX, clientY);
+            return t ? t[4] : null;
         }
 
         // Phones: act on the finger lifting. iPhone Safari sends no "click" for taps on a plain
         // element like the game's canvas, so a click listener alone never fires there. The touch must
         // start and end on the same button (a drag that ends on it doesn't count).
-        var wordleTouchStart = null, wordleTouchHandled = 0, wordleSayStart = null, wordleSayHandled = 0;
+        var wordleTouchStart = null, wordleTouchHandled = 0, wordleSayStart = null, wordleSayDown = null, wordleSayHandled = 0;
         window.wordleTouchCount = 0;  // every touch the page sees (the ?debug=1 readout compares it with the game's)
         document.addEventListener("touchstart", function () { window.wordleTouchCount++; }, { capture: true, passive: true });
         document.addEventListener("touchstart", function (event) {
             var touch = event.touches && event.touches[0];
             wordleTouchStart = touch ? wordleShareAt(touch.clientX, touch.clientY) : null;
-            wordleSayStart = touch ? wordleTargetAt(window.wordleSayTargets, touch.clientX, touch.clientY) : null;
+            wordleSayStart = touch ? wordleTargetHit(window.wordleSayTargets, touch.clientX, touch.clientY) : null;
         }, { capture: true, passive: true });
         document.addEventListener("touchend", function (event) {
             var touch = event.changedTouches && event.changedTouches[0];
@@ -505,10 +517,9 @@ function show_infobox() {
                 wordleTouchHandled = Date.now();
                 wordleShareText(text);
             }
-            var word = touch ? wordleTargetAt(window.wordleSayTargets, touch.clientX, touch.clientY) : null;
-            if (word !== null && word === wordleSayStart) {
+            if (wordleSayStart && touch && wordleOnTarget(wordleSayStart, touch.clientX, touch.clientY)) {
                 wordleSayHandled = Date.now();
-                wordleSay(word);
+                wordleSay(wordleSayStart[4]);
             }
             wordleTouchStart = wordleSayStart = null;
         }, { capture: true, passive: true });
@@ -518,10 +529,14 @@ function show_infobox() {
             var text = wordleShareAt(event.clientX, event.clientY);
             if (text !== null) wordleShareText(text);
         }, true);
+        document.addEventListener("mousedown", function (event) {
+            wordleSayDown = wordleTargetHit(window.wordleSayTargets, event.clientX, event.clientY);
+        }, true);
         document.addEventListener("click", function (event) {
+            var t = wordleSayDown;
+            wordleSayDown = null;
             if (Date.now() - wordleSayHandled < 1000) return;  // the same tap, already said
-            var word = wordleTargetAt(window.wordleSayTargets, event.clientX, event.clientY);
-            if (word !== null) wordleSay(word);
+            if (t && wordleOnTarget(t, event.clientX, event.clientY)) wordleSay(t[4]);
         }, true);
 
         // One tab at a time: every tab keeps its own copy of the saved games and writes it back, so two
