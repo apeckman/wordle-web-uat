@@ -428,15 +428,12 @@ function show_infobox() {
                     setTimeout(function () { frame.remove(); }, 1000); } };
             } catch (e) { return null; }
         }
-        function wordleShareText(text) {
-            // The share sheet (Messages, Mail, WhatsApp...) wherever the browser has one: phones, Safari
-            // and Edge on computers, Chrome on Windows and newer Macs. Otherwise (Firefox, say) copy it.
-            var canShare = navigator.share && (!navigator.canShare || navigator.canShare({ text: text }));
-            if (!canShare) { wordleCopy(text); return; }
+        function wordleShareWith(data, fallback) {
+            // navigator.share (from a fresh frame if the last share never answered); fallback() if it's refused.
             var via = wordleSharePending ? wordleFreshShare() : null;
             var attempt;
             try {
-                attempt = via ? via.share({ text: text }) : navigator.share({ text: text });
+                attempt = via ? via.share(data) : navigator.share(data);
             } catch (e) {
                 attempt = Promise.reject(e);
             }
@@ -445,10 +442,67 @@ function show_infobox() {
                 window.wordleShareStatus = "shared";
             }, function (error) {
                 if (error && error.name === "AbortError") window.wordleShareStatus = "cancelled";
-                else wordleCopy(text);
+                else fallback();
             }).then(function () {
                 if (via) via.done(); else wordleSharePending = false;
             });
+        }
+        function wordleShareText(text) {
+            // The share sheet (Messages, Mail, WhatsApp...) wherever the browser has one: phones, Safari
+            // and Edge on computers, Chrome on Windows and newer Macs. Otherwise (Firefox, say) copy it.
+            if (text === "[picture]") { wordleSharePicture(); return; }  // (gui.py PICTURE)
+            var canShare = navigator.share && (!navigator.canShare || navigator.canShare({ text: text }));
+            if (!canShare) { wordleCopy(text); return; }
+            wordleShareWith({ text: text }, function () { wordleCopy(text); });
+        }
+
+        // The board picture (gui.py publish_picture): a PNG the game hands over as base64 before the tap,
+        // shared as a file wherever the browser can (phones, Safari, Edge, newer Chrome), else copied as
+        // an image, else downloaded.
+        window.wordleShareImage = "";
+        var wordlePictureFile = null, wordlePictureFor = "";
+        function wordlePicture() {
+            var data = window.wordleShareImage || "";
+            if (!data) return null;
+            if (data !== wordlePictureFor) {
+                try {
+                    var bin = atob(data), bytes = new Uint8Array(bin.length);
+                    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                    wordlePictureFile = new File([bytes], "wordle.png", { type: "image/png" });
+                    wordlePictureFor = data;
+                } catch (e) { return null; }
+            }
+            return wordlePictureFile;
+        }
+        function wordleSavePicture(file) {
+            try {
+                var url = URL.createObjectURL(file), link = document.createElement("a");
+                link.href = url;
+                link.download = file.name;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+                window.wordleShareStatus = "picture saved";
+            } catch (e) { window.wordleShareStatus = "failed"; }
+        }
+        function wordleCopyPicture(file) {
+            if (navigator.clipboard && navigator.clipboard.write && window.ClipboardItem) {
+                navigator.clipboard.write([new ClipboardItem({ "image/png": file })]).then(function () {
+                    window.wordleShareStatus = "picture copied";
+                }, function () { wordleSavePicture(file); });
+            } else {
+                wordleSavePicture(file);
+            }
+        }
+        function wordleSharePicture() {
+            var file = wordlePicture();
+            if (!file) { window.wordleShareStatus = "failed"; return; }
+            var data = { files: [file] };
+            var canShare = false;
+            try { canShare = !!(navigator.share && navigator.canShare && navigator.canShare(data)); } catch (e) {}
+            if (!canShare) { wordleCopyPicture(file); return; }
+            wordleShareWith(data, function () { wordleCopyPicture(file); });
         }
 
         function wordleShareAt(clientX, clientY) {
@@ -476,6 +530,7 @@ function show_infobox() {
         document.addEventListener("touchstart", function (event) {
             var touch = event.touches && event.touches[0];
             wordleTouchStart = touch ? wordleShareAt(touch.clientX, touch.clientY) : null;
+            if (wordleTouchStart === "[picture]") wordlePicture();
         }, { capture: true, passive: true });
         document.addEventListener("touchend", function (event) {
             var touch = event.changedTouches && event.changedTouches[0];
