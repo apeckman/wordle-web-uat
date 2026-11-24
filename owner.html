@@ -409,7 +409,8 @@
       hit.addEventListener("mouseenter", function () {
         var d = data[Number(hit.dataset.i)];
         tip.innerHTML = "<b>" + esc(d.day) + "</b><br>" + d.players + " player" + (d.players === 1 ? "" : "s") +
-          " · " + d.daily_wordle_games + " Wordle · " + d.daily_quordle_games + " Quordle · " + d.practice_games + " practice";
+          " · " + d.daily_wordle_games + " Wordle · " + d.daily_quordle_games + " Quordle · " + d.practice_games + " practice" +
+          (d.custom_games ? " · " + d.custom_games + " custom" : "");
         var box = hit.getBoundingClientRect(), outer = $("ppd-chart").getBoundingClientRect();
         tip.style.left = (box.left - outer.left + box.width / 2) + "px";
         tip.style.top = (y(d.players) / height * outer.height) + "px";
@@ -431,7 +432,8 @@
     $("tiles").innerHTML = [
       tile(played, "players", num(t.accounts) + " with an account · " + num(t.linked_players) + " on 2+ devices"),
       tile(t.players_today, "played in the last day", num(t.games_today) + " games"),
-      tile(t.games, "games", num(t.daily_games) + " daily · " + num((t.games || 0) - (t.daily_games || 0)) + " practice"),
+      tile(t.games, "games", num(t.daily_games) + " daily · " +
+           num((t.games || 0) - (t.daily_games || 0) - (t.custom_games || 0)) + " practice · " + num(t.custom_games || 0) + " custom"),
       tile(t.sharing_players, "sharing with friends", num(t.friendships) + " friendship" + (t.friendships === 1 ? "" : "s"))
     ].join("");
     $("also").textContent = "Not counted as players: " + num(t.unplayed_players) + " device" +
@@ -445,8 +447,8 @@
     $("ppd-note").textContent = week.length ? "last 7 days: " + num(Math.round(10 * week.reduce(function (a, d) {
       return a + d.players; }, 0) / 7) / 10) + " a day on average" : "";
     $("ppd-table").innerHTML = table([["Day", "day"], ["Players", "players", "num"], ["Daily players", "daily_players", "num"],
-      ["Wordle", "daily_wordle_games", "num"], ["Quordle", "daily_quordle_games", "num"], ["Practice", "practice_games", "num"]],
-      s.players_per_day);
+      ["Wordle", "daily_wordle_games", "num"], ["Quordle", "daily_quordle_games", "num"], ["Practice", "practice_games", "num"],
+      ["Custom", function (d) { return num(d.custom_games || 0); }, "num"]], s.players_per_day);
     var recent = (s.players || []).slice().sort(function (a, b) { return (active(b) || "").localeCompare(active(a) || ""); }).slice(0, 5);
     $("recent").innerHTML = recent.length ? table([
       ["Player", function (p) { return playerLink(p.id, label(p)) + chips(p); }],
@@ -696,7 +698,7 @@
     if (g.custom) {
       var by = g.custom_by ? playerLink(g.custom_by, g.custom_by_name || (g.custom && g.custom.from)) :
         esc((g.custom.from || "unknown") + (g.custom.by ? "" : " (no tag)"));
-      return "Wordle custom, by " + by;
+      return "Custom Wordle by " + by;
     }
     return (g.mode === "w" ? "Wordle" : "Quordle") + (g.daily != null ? " #" + g.daily : " practice");
   }
