@@ -664,11 +664,12 @@
   }
   function colors(guess, answer) {
     // Standard two-pass scoring (Board.score): greens first, then yellows from what's left.
-    var out = ["", "", "", "", ""], left = {};
-    for (var i = 0; i < 5; i++) {
+    // (a custom Wordle may have 3 to 7 letters)
+    var out = guess.split("").map(function () { return ""; }), left = {};
+    for (var i = 0; i < guess.length; i++) {
       if (guess[i] === answer[i]) out[i] = "g"; else left[answer[i]] = (left[answer[i]] || 0) + 1;
     }
-    for (i = 0; i < 5; i++) {
+    for (i = 0; i < guess.length; i++) {
       if (!out[i] && left[guess[i]]) { out[i] = "y"; left[guess[i]]--; }
     }
     return out;
