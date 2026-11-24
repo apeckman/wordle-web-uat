@@ -641,18 +641,23 @@ function show_infobox() {
 
         // Each screen's address after the # (gui.py address() / route_step): the game shows where it is,
         // so a reload opens the same screen, and the browser's Back / Forward tell it where to go.
-        // history.state.wordleDepth is 1 on the one entry the game adds on top of the page's own.
+        // history.state: wordleDepth 1 on the one entry the game adds on top of the page's own, and
+        // wordleEarlier = the screens before it (JSON), so Back can go further back after a reload.
         (function () {
             var taken = null;
             function hash() { return location.hash.replace(/^#/, ""); }
             function depth() { return history.state && history.state.wordleDepth === 1 ? 1 : 0; }
-            window.wordleRouteState = function () { return JSON.stringify({hash: hash(), depth: depth()}); };
-            window.wordleRoute = function (how, address) {
+            window.wordleRouteState = function () {
+                var earlier = [];
+                try { earlier = JSON.parse(history.state && history.state.wordleEarlier || "[]"); } catch (e) {}
+                return JSON.stringify({hash: hash(), depth: depth(), earlier: earlier});
+            };
+            window.wordleRoute = function (how, address, earlier) {
                 try {
                     if (how === "back") { history.back(); return; }
                     var url = location.pathname + location.search + (address ? "#" + address : "");
-                    if (how === "push") history.pushState({wordleDepth: 1}, "", url);
-                    else history.replaceState({wordleDepth: depth()}, "", url);
+                    if (how === "push") history.pushState({wordleDepth: 1, wordleEarlier: String(earlier || "[]")}, "", url);
+                    else history.replaceState({wordleDepth: depth(), wordleEarlier: String(earlier || "[]")}, "", url);
                 } catch (e) {}
             };
             window.addEventListener("popstate", function () { taken = hash(); });
