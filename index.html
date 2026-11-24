@@ -675,7 +675,9 @@ function show_infobox() {
             window.wordleSpareTake = function () { var s = spareNew; spareNew = false; return s; };
             window.addEventListener("popstate", function () { taken = hash(); });
             window.wordleRouteTake = function () { var t = taken; taken = null; return t; };
-            function onNav(x, y) { return !!wordleTargetHit(window.wordleNavTargets, x, y); }
+            function onNav(x, y) {  // (never a Share button: stepping back off a spare closes iOS's share sheet)
+                return !!wordleTargetHit(window.wordleNavTargets, x, y) && wordleShareAt(x, y) === null;
+            }
             document.addEventListener("touchstart", function (event) {
                 var touch = event.touches && event.touches[0];
                 navStart = !!touch && onNav(touch.clientX, touch.clientY);
