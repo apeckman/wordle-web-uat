@@ -690,10 +690,19 @@
     if (g.mode === "w") return g.guesses.map(function (x, i) { return tiles(x, g.answers[0]) + mark(i); }).join("");
     return g.guesses.map(function (x, i) { return "<span class='word'>" + esc(x) + "</span>" + mark(i); }).join(" ");
   }
+  function gameName(g) {
+    // A custom Wordle (a word from a friend's link) says whose word it was.
+    if (g.custom) {
+      var by = g.custom_by ? playerLink(g.custom_by, g.custom_by_name || (g.custom && g.custom.from)) :
+        esc((g.custom.from || "unknown") + (g.custom.by ? "" : " (no tag)"));
+      return "Wordle custom, by " + by;
+    }
+    return (g.mode === "w" ? "Wordle" : "Quordle") + (g.daily != null ? " #" + g.daily : " practice");
+  }
   function gameRows(games) {
     return table([
       ["Finished", function (g) { return when(g.finished); }],
-      ["Game", function (g) { return (g.mode === "w" ? "Wordle" : "Quordle") + (g.daily != null ? " #" + g.daily : " practice"); }],
+      ["Game", gameName],
       ["Result", function (g) {
         return g.won ? "<span class='won'>Won in " + g.guesses.length + "</span>" : "<span class='lost'>Lost</span>";
       }],
@@ -704,7 +713,8 @@
       ["From", "site"]], games);
   }
   function modeStats(games, mode) {
-    var mine = games.filter(function (g) { return g.mode === mode; }), daily = mine.filter(function (g) { return g.daily != null; });
+    // (custom Wordles never count in a player's own stats, as in the game)
+    var mine = games.filter(function (g) { return g.mode === mode && !g.custom; }), daily = mine.filter(function (g) { return g.daily != null; });
     var wins = mine.filter(function (g) { return g.won; }), dist = {};
     wins.forEach(function (g) { dist[g.guesses.length] = (dist[g.guesses.length] || 0) + 1; });
     var st = streaks(daily);
@@ -743,6 +753,18 @@
       "<section class='card'><h2>Devices (" + d.devices.length + ")</h2>" + table([
         ["First seen", function (x) { return when(x.created); }], ["Last seen", function (x) { return when(x.last_seen); }]], d.devices) +
       "</section>" +
+      "<section class='card'><h2>Their custom Wordles, played by others (" + (d.made || []).length + ")</h2>" +
+        "<p class='small'>Maker tag " + esc(d.maker || "none yet") + ". Custom Wordles only count between friends, on their Friends pages.</p>" +
+        ((d.made || []).length ? "<div class='scroll'>" + table([
+          ["Finished", function (g) { return when(g.finished); }],
+          ["Played by", function (g) { return playerLink(g.player, g.name); }],
+          ["Result", function (g) {
+            return g.won ? "<span class='won'>Won in " + g.guesses.length + "</span>" : "<span class='lost'>Lost</span>";
+          }],
+          ["Word", function (g) { return esc(g.answers[0].toUpperCase()); }],
+          ["Guesses", function (g) { return guessList(g); }],
+          ["Name in link", function (g) { return esc((g.custom && g.custom.from) || "–"); }]], d.made) + "</div>" :
+          "<p class='small'>None yet.</p>") + "</section>" +
       "<section class='card'><h2>Every game (" + d.games.length + ")</h2><div class='scroll'>" + gameRows(d.games) + "</div></section>";
     $("panel").scrollTop = 0;
   }
