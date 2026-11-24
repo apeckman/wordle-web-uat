@@ -655,9 +655,11 @@ function show_infobox() {
         // (wordleNavTargets / wordleNavKeys, from the game) and the game fills it or steps back off it.
         // history.state: wordleBelow = JSON list of the game's screens under this entry, wordleSpare.
         (function () {
-            var taken = null, spareNew = false, navStart = false, navDown = false;
-            window.wordleNavTargets = "";  // JSON [[x, y, width, height, 1], ...] in canvas pixels
+            var taken = null, spareNew = false, navStart = null, navDown = null;
+            window.wordleNavTargets = "";  // JSON [[x, y, width, height, 1 or 2], ...] in canvas pixels
             window.wordleNavKeys = false;
+            window.wordleNavSeen = 0;  // taps the game has taken in (gui.py publish_nav_targets)
+            window.wordleNavPage = "";  // the kind of page on screen ("menu", "daily", "friend"...)
             function hash() { return location.hash.replace(/^#/, ""); }
             function below() {
                 try { return JSON.parse(history.state && history.state.wordleBelow || "[]"); } catch (e) { return []; }
@@ -685,18 +687,26 @@ function show_infobox() {
             window.addEventListener("popstate", function () { taken = hash(); });
             window.wordleRouteTake = function () { var t = taken; taken = null; return t; };
             function onNav(x, y) {  // (never a Share button: stepping back off a spare closes iOS's share sheet)
-                return !!wordleTargetHit(window.wordleNavTargets, x, y) && wordleShareAt(x, y) === null;
+                if (wordleShareAt(x, y) !== null) return null;
+                var t = wordleTargetHit(window.wordleNavTargets, x, y);
+                return t ? {release: t[4] === 2, seen: window.wordleNavSeen, page: window.wordleNavPage} : null;
+            }
+            function lifted(start) {
+                // The finger (or mouse button) lifted after going down on a target: add a spare unless the
+                // game has already taken this tap in and it left the page as it was (a tab, a switch, Hint):
+                // the game would only step back off it, and each history.go made Safari flicker.
+                if (!start) return;
+                if (!start.release && window.wordleNavSeen !== start.seen && window.wordleNavPage === start.page) return;
+                addSpare();  // (the game acts as the finger goes down, so anywhere it lifts)
             }
             document.addEventListener("touchstart", function (event) {
                 var touch = event.touches && event.touches[0];
-                navStart = !!touch && onNav(touch.clientX, touch.clientY);
+                navStart = touch ? onNav(touch.clientX, touch.clientY) : null;
             }, { capture: true, passive: true });
-            document.addEventListener("touchend", function () {
-                if (navStart) addSpare();  // (the game acts as the finger goes down, so anywhere it lifts)
-                navStart = false;
-            }, { capture: true, passive: true });
+            document.addEventListener("touchend", function () { lifted(navStart); navStart = null; },
+                                      { capture: true, passive: true });
             document.addEventListener("mousedown", function (event) { navDown = onNav(event.clientX, event.clientY); }, true);
-            document.addEventListener("mouseup", function () { if (navDown) addSpare(); navDown = false; }, true);
+            document.addEventListener("mouseup", function () { lifted(navDown); navDown = null; }, true);
             document.addEventListener("keydown", function (event) {
                 var tag = event.target && event.target.tagName;
                 if (window.wordleNavKeys && tag !== "INPUT" && tag !== "TEXTAREA") addSpare();
