@@ -639,6 +639,29 @@ function show_infobox() {
         window.addEventListener("online", function () { window.wordleWoke = true; });
         window.addEventListener("focus", function () { window.wordleWoke = true; });  // (a computer: back to this window)
 
+        // Each screen's address after the # (gui.py address() / route_step): the game shows where it is,
+        // so a reload opens the same screen, and the browser's Back / Forward tell it where to go.
+        // history.state.wordlePrev is the address one Back step away, so Home from a game steps Back.
+        (function () {
+            var taken = null;
+            function hash() { return location.hash.replace(/^#/, ""); }
+            window.wordleRouteState = function () {
+                var state = history.state, prev = state && typeof state.wordlePrev === "string" ? state.wordlePrev : null;
+                return JSON.stringify({hash: hash(), prev: prev});
+            };
+            window.wordleRoute = function (how, address, prev) {
+                try {
+                    if (how === "back") { history.back(); return; }
+                    var url = location.pathname + location.search + (address ? "#" + address : "");
+                    if (how === "push") history.pushState({wordlePrev: String(prev)}, "", url);
+                    else history.replaceState({wordlePrev: history.state && typeof history.state.wordlePrev === "string"
+                                                            ? history.state.wordlePrev : null}, "", url);
+                } catch (e) {}
+            };
+            window.addEventListener("popstate", function () { taken = hash(); });
+            window.wordleRouteTake = function () { var t = taken; taken = null; return t; };
+        })();
+
         // Watchdog (Nov 2026): when the game stops answering, note what it was, for the server's log
         // (gui.py watch() takes the notes every 5 s and sends them; the client_logs query in CLAUDE.md
         // reads them): frames that stopped while the page was on screen, the page itself blocked (its
