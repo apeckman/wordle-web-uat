@@ -639,29 +639,57 @@ function show_infobox() {
         window.addEventListener("online", function () { window.wordleWoke = true; });
         window.addEventListener("focus", function () { window.wordleWoke = true; });  // (a computer: back to this window)
 
-        // Each screen's address after the # (gui.py address() / route_step): the game shows where it is,
-        // so a reload opens the same screen, and the browser's Back / Forward tell it where to go.
-        // history.state: wordleDepth 1 on the one entry the game adds on top of the page's own, and
-        // wordleEarlier = the screens before it (JSON), so Back can go further back after a reload.
+        // Each screen's address after the # (gui.py address() / route_step): a reload opens the same
+        // screen, and the browser's Back goes to the screen before. Safari and Chrome skip, on Back,
+        // the entry a page was on when it added one outside a tap, and the game sees taps a frame
+        // late, so this page adds a spare entry during each tap (or key) that may open a screen
+        // (wordleNavTargets / wordleNavKeys, from the game) and the game fills it or steps back off it.
+        // history.state: wordleBelow = JSON list of the game's screens under this entry, wordleSpare.
         (function () {
-            var taken = null;
+            var taken = null, spareNew = false, navStart = false, navDown = false;
+            window.wordleNavTargets = "";  // JSON [[x, y, width, height, 1], ...] in canvas pixels
+            window.wordleNavKeys = false;
             function hash() { return location.hash.replace(/^#/, ""); }
-            function depth() { return history.state && history.state.wordleDepth === 1 ? 1 : 0; }
+            function below() {
+                try { return JSON.parse(history.state && history.state.wordleBelow || "[]"); } catch (e) { return []; }
+            }
             window.wordleRouteState = function () {
-                var earlier = [];
-                try { earlier = JSON.parse(history.state && history.state.wordleEarlier || "[]"); } catch (e) {}
-                return JSON.stringify({hash: hash(), depth: depth(), earlier: earlier});
+                return JSON.stringify({hash: hash(), below: below(), spare: !!(history.state && history.state.wordleSpare)});
             };
-            window.wordleRoute = function (how, address, earlier) {
+            window.wordleRoute = function (how, address, belowJson, steps) {
                 try {
-                    if (how === "back") { history.back(); return; }
+                    if (how === "go") { history.go(steps); return; }
                     var url = location.pathname + location.search + (address ? "#" + address : "");
-                    if (how === "push") history.pushState({wordleDepth: 1, wordleEarlier: String(earlier || "[]")}, "", url);
-                    else history.replaceState({wordleDepth: depth(), wordleEarlier: String(earlier || "[]")}, "", url);
+                    history.replaceState({wordleBelow: String(belowJson || "[]")}, "", url);
                 } catch (e) {}
             };
+            function addSpare() {
+                if (window.wordleInactive || (history.state && history.state.wordleSpare)) return;
+                try {
+                    var list = below();
+                    list.push(hash());
+                    history.pushState({wordleBelow: JSON.stringify(list.slice(-12)), wordleSpare: true}, "", location.href);
+                    spareNew = true;
+                } catch (e) {}
+            }
+            window.wordleSpareTake = function () { var s = spareNew; spareNew = false; return s; };
             window.addEventListener("popstate", function () { taken = hash(); });
             window.wordleRouteTake = function () { var t = taken; taken = null; return t; };
+            function onNav(x, y) { return !!wordleTargetHit(window.wordleNavTargets, x, y); }
+            document.addEventListener("touchstart", function (event) {
+                var touch = event.touches && event.touches[0];
+                navStart = !!touch && onNav(touch.clientX, touch.clientY);
+            }, { capture: true, passive: true });
+            document.addEventListener("touchend", function () {
+                if (navStart) addSpare();  // (the game acts as the finger goes down, so anywhere it lifts)
+                navStart = false;
+            }, { capture: true, passive: true });
+            document.addEventListener("mousedown", function (event) { navDown = onNav(event.clientX, event.clientY); }, true);
+            document.addEventListener("mouseup", function () { if (navDown) addSpare(); navDown = false; }, true);
+            document.addEventListener("keydown", function (event) {
+                var tag = event.target && event.target.tagName;
+                if (window.wordleNavKeys && tag !== "INPUT" && tag !== "TEXTAREA") addSpare();
+            }, true);
         })();
 
         // Watchdog (Nov 2026): when the game stops answering, note what it was, for the server's log
