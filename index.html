@@ -505,17 +505,19 @@ function show_infobox() {
         var wordleTouchStart = null, wordleTouchHandled = 0, wordleSayStart = null, wordleSayDown = null, wordleSayHandled = 0;
         window.wordleTouchCount = 0;  // every touch the page sees (the ?debug=1 readout compares it with the game's)
         document.addEventListener("touchstart", function () { window.wordleTouchCount++; }, { capture: true, passive: true });
+        // The button and its text are kept from when the finger went down: the game acts on that
+        // (Make a Wordle's Send link then gives the next link a new id, so its text changes before the
+        // finger lifts), and the text shared is the one that was on screen (UAT, Nov 2026).
         document.addEventListener("touchstart", function (event) {
             var touch = event.touches && event.touches[0];
-            wordleTouchStart = touch ? wordleShareAt(touch.clientX, touch.clientY) : null;
+            wordleTouchStart = touch ? wordleTargetHit(window.wordleShareTargets, touch.clientX, touch.clientY) : null;
             wordleSayStart = touch ? wordleTargetHit(window.wordleSayTargets, touch.clientX, touch.clientY) : null;
         }, { capture: true, passive: true });
         document.addEventListener("touchend", function (event) {
             var touch = event.changedTouches && event.changedTouches[0];
-            var text = touch ? wordleShareAt(touch.clientX, touch.clientY) : null;
-            if (text !== null && text === wordleTouchStart) {
+            if (wordleTouchStart && touch && wordleOnTarget(wordleTouchStart, touch.clientX, touch.clientY)) {
                 wordleTouchHandled = Date.now();
-                wordleShareText(text);
+                wordleShareText(wordleTouchStart[4]);
             }
             if (wordleSayStart && touch && wordleOnTarget(wordleSayStart, touch.clientX, touch.clientY)) {
                 wordleSayHandled = Date.now();
@@ -524,8 +526,15 @@ function show_infobox() {
             wordleTouchStart = wordleSayStart = null;
         }, { capture: true, passive: true });
         // Mouse and trackpad.
+        var wordleShareDown = null;  // the Share button the mouse went down on (as for touches above)
+        document.addEventListener("mousedown", function (event) {
+            wordleShareDown = wordleTargetHit(window.wordleShareTargets, event.clientX, event.clientY);
+        }, true);
         document.addEventListener("click", function (event) {
+            var down = wordleShareDown;
+            wordleShareDown = null;
             if (Date.now() - wordleTouchHandled < 1000) return;  // the same tap, already shared
+            if (down && wordleOnTarget(down, event.clientX, event.clientY)) { wordleShareText(down[4]); return; }
             var text = wordleShareAt(event.clientX, event.clientY);
             if (text !== null) wordleShareText(text);
         }, true);
