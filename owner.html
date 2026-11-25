@@ -780,10 +780,13 @@
     ].map(function (t) { return "<div class='tile'><div class='value'>" + esc(t[0]) + "</div><div class='label'>" + esc(t[1]) + "</div></div>"; }).join("") +
       "</div><div class='small'>Wins by guesses: " + distribution(dist, mode) + "</div></div>";
   }
+  var openId = null;  // the player whose panel is open (or loading)
   async function openPlayer(id) {
+    openId = id;
     $("drawer").hidden = false;
     $("panel").innerHTML = "<p class='small'>Loading...</p>";
     var result = await db.rpc("wordle_owner_player", { p_player: id });
+    if (openId !== id) return;  // (Back, or another player, while it loaded)
     var d = result.data;
     if (result.error || !d || !d.ok) {
       $("panel").innerHTML = "<header><h1>Player</h1><button id='close'>Close</button></header><p class='error'>" +
@@ -824,7 +827,14 @@
       "<section class='card'><h2>Every game (" + d.games.length + ")</h2><div class='scroll'>" + gameRows(d.games) + "</div></section>";
     $("panel").scrollTop = 0;
   }
-  function closePlayer() { $("drawer").hidden = true; }
+  function hidePlayer() { openId = null; $("drawer").hidden = true; }
+  function closePlayer() {
+    // Close = Back when the panel was opened here (so Back afterwards doesn't reopen it), else
+    // just drop the player from the address (a panel reloaded or opened from a pasted link).
+    if ($("drawer").hidden) return;
+    if (history.state && history.state.owner && history.length > 1) history.back();
+    else go(where().tab, null, true);
+  }
 
   var last = null, loadedAt = 0, loading = false;
   function showUpdated() {
@@ -838,18 +848,44 @@
   });
   setInterval(function () { if (document.visibilityState === "visible" && last) load(); }, 5 * 60000);
 
-  // ----- tabs (the choice is kept in the address, e.g. owner.html#players) ----------------------
+  // ----- tabs and the player panel, kept in the address ----------------------------------------
+  // owner.html = Overview, #players = a tab, #players/<player id> = a player's panel over that tab.
+  // Each tab or panel you open is its own history entry, so the browser's Back steps back through
+  // them (a phone's back swipe too) instead of leaving the page, and a reload reopens the same view.
   var TABS = ["overview", "players", "puzzles", "insights", "people"];
+  var currentTab = null;
+  function where() {
+    var parts = decodeURIComponent(location.hash.slice(1)).split("/");
+    return { tab: TABS.indexOf(parts[0]) >= 0 ? parts[0] : "overview", player: parts[1] || null };
+  }
+  function address(tab, player) {
+    if (!player && tab === "overview") return location.pathname + location.search;
+    return "#" + tab + (player ? "/" + encodeURIComponent(player) : "");
+  }
   function showTab(name) {
     if (TABS.indexOf(name) < 0) name = "overview";
+    currentTab = name;
     document.querySelectorAll("[data-view]").forEach(function (v) { v.hidden = v.dataset.view !== name; });
     document.querySelectorAll("#tabs [data-tab]").forEach(function (b) { b.setAttribute("aria-selected", String(b.dataset.tab === name)); });
-    try {
-      if (location.hash.slice(1) !== name) history.replaceState(null, "", name === "overview" ? location.pathname + location.search : "#" + name);
-    } catch (e) { /* (a page opened from a file or data: address can't change its address) */ }
     if (name === "overview" && last) chart(last.players_per_day);  // (its width is only known once shown)
   }
-  window.addEventListener("hashchange", function () { showTab(location.hash.slice(1)); });
+  function route() {
+    // Show whatever the address says (after Back/Forward, a reload or go()).
+    var w = where();
+    if (w.tab !== currentTab) showTab(w.tab);
+    if (w.player) { if (w.player !== openId || $("drawer").hidden) openPlayer(w.player); }
+    else hidePlayer();
+  }
+  function go(tab, player, replace) {
+    // A new view: a new history entry (or the same entry, with replace), then show it.
+    var to = address(tab, player), here = address(where().tab, where().player);
+    try {
+      if (to !== here) history[replace ? "replaceState" : "pushState"]({ owner: true }, "", to);
+    } catch (e) { /* (a page opened from a file or data: address can't change its address) */ }
+    route();
+  }
+  window.addEventListener("popstate", route);
+  window.addEventListener("hashchange", route);  // (an address typed or edited by hand)
 
   async function load() {
     if (loading) return;
@@ -873,7 +909,7 @@
     last = s;
     show("dash");
     render(s);
-    showTab(location.hash.slice(1));
+    route();
   }
 
   function say(text, ok) {
@@ -987,9 +1023,9 @@
     }
     if (event.target.id === "close" || event.target.id === "drawer") { closePlayer(); return; }
     var tab = event.target.closest("#tabs [data-tab]");
-    if (tab) { showTab(tab.dataset.tab); return; }
-    var go = event.target.closest("[data-goto]");
-    if (go) { showTab(go.dataset.goto); window.scrollTo(0, 0); return; }
+    if (tab) { go(tab.dataset.tab, null); return; }
+    var link = event.target.closest("[data-goto]");
+    if (link) { go(link.dataset.goto, null); window.scrollTo(0, 0); return; }
     var spoiler = event.target.closest(".spoiler");
     if (spoiler) {
       // A game's answer and guesses show (and hide) together.
@@ -1013,7 +1049,7 @@
       return;
     }
     var row = event.target.closest("[data-player]");
-    if (row) openPlayer(row.dataset.player);
+    if (row) go(where().tab, row.dataset.player);  // (from inside a panel too: Back returns to the one before)
   });
   document.addEventListener("keydown", function (event) { if (event.key === "Escape") closePlayer(); });
   db.auth.onAuthStateChange(function (event) { if (event === "SIGNED_IN" && !resetting) load(); });
