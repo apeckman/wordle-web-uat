@@ -144,12 +144,50 @@
   .today .nums b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
   .today .nums span { font-size: 12px; color: var(--text-3); }
   td .chev { color: var(--text-3); }
+  .short, .phone-only { display: none; }
+  select { font: inherit; font-size: 13px; color: var(--text); background: var(--surface); border: 1px solid var(--border);
+           border-radius: 8px; padding: 4px 6px; margin-left: 4px; }
   @media (max-width: 600px) {
+    /* Phones: nothing wider than the screen. Tables become a list of little cards (one per row), the
+       tabs use short names and wrap rather than run off the edge, and the tab bar spans the full width. */
     header h1 { font-size: 18px; flex-basis: 100%; }
     main { padding-top: 12px; }
     .opt { display: none; }  /* (less important player columns; the player's page has them) */
-    #players td:first-child, #recent td:first-child { white-space: normal; min-width: 150px; }
     .tile .value { font-size: 24px; }
+    .card { padding: 14px 12px; }
+    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .tiles.small { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .tiles.small .tile .value { font-size: 20px; }
+    .long { display: none; }
+    .short { display: inline; }
+    .phone-only { display: inline-block; }
+    .tabs { flex-wrap: wrap; justify-content: space-between; gap: 0; margin: 0 -16px 12px; padding: 0 6px; }
+    .tabs button { padding: 10px 7px; font-size: 14px; }  /* (all five fit in one row from 375 px wide) */
+    section .row { gap: 4px 12px; }
+    section .row > .small { flex-basis: 100%; order: 3; }  /* (a section's note goes under its title) */
+    .toolbar input { max-width: none; }
+    .today .nums { gap: 12px; }
+    .chart svg { height: 200px; }
+    a, td, h1, .small, code { overflow-wrap: anywhere; }
+    table.stack, table.stack tbody { display: block; }
+    table.stack thead { display: none; }
+    table.stack tr { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 6px 12px;
+                     padding: 10px 2px; border-bottom: 1px solid var(--border); }
+    table.stack td { display: block; padding: 0; border: 0; white-space: normal; text-align: left; min-width: 0; }
+    table.stack td::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 600;
+                             color: var(--text-3); text-transform: uppercase; letter-spacing: .03em; }
+    table.stack td:first-child { grid-column: 1 / -1; font-weight: 600; }
+    table.stack td:first-child::before { content: attr(data-lead); display: inline; font: inherit; color: inherit;
+                                         text-transform: none; letter-spacing: 0; }
+    table.stack td.wide { grid-column: 1 / -1; }
+    table.stack td.chev-cell, table.stack td.opt, table.stack td:empty { display: none; }
+    table.stack td .pill { margin: 2px 6px 0 0; }
+    table.stack td:first-child .pill { margin-left: 6px; }
+    tr.pick:hover td { background: none; }
+    .drawer .panel { padding: 14px 12px 40px; }
+    .drawer .panel header { flex-wrap: nowrap; align-items: flex-start; }
+    .drawer .panel header h1 { flex: 1 1 auto; flex-basis: auto; min-width: 0; }
+    .tl span { width: 16px; height: 16px; font-size: 10px; line-height: 16px; }
   }
 </style>
 </head>
@@ -200,9 +238,10 @@
     <nav class="tabs" id="tabs" role="tablist" aria-label="Sections">
       <button role="tab" data-tab="overview">Overview</button>
       <button role="tab" data-tab="players">Players <span class="count" id="tab-players"></span></button>
-      <button role="tab" data-tab="puzzles">Daily puzzles</button>
-      <button role="tab" data-tab="insights">Words &amp; hints</button>
-      <button role="tab" data-tab="people">Friends &amp; deletions <span class="alert" id="tab-people" hidden></span></button>
+      <button role="tab" data-tab="puzzles"><span class="long">Daily puzzles</span><span class="short">Puzzles</span></button>
+      <button role="tab" data-tab="insights"><span class="long">Words &amp; hints</span><span class="short">Words</span></button>
+      <button role="tab" data-tab="people"><span class="long">Friends &amp; deletions</span><span class="short">Friends</span>
+        <span class="alert" id="tab-people" hidden></span></button>
     </nav>
 
     <div data-view="overview">
@@ -239,6 +278,10 @@
             <button data-filter="today">Active today</button>
             <button data-filter="deleted">Deleted</button>
           </div>
+          <label class="phone-only small">Sort by <select id="player-sort">
+            <option value="active">Last active</option><option value="games">Games</option>
+            <option value="win_percent">Win %</option><option value="label">Name</option>
+            <option value="created">Joined</option></select></label>
         </div>
         <div class="scroll" id="players"></div>
         <p class="small">Click a player for every game with its guesses (💡 a hint, 📖 the word list), their streaks,
@@ -326,15 +369,18 @@
     ["signin", "denied", "dash"].forEach(function (name) { $(name).hidden = name !== id; });
   }
   function table(columns, rows, empty) {
-    // columns: [label, key or function(row), "num" or ""]
+    // columns: [label, key or function(row), classes ("num", "wide": a whole line on a phone), lead]
+    // On a phone (table.stack, see the CSS) each row becomes a little card: the first cell is its title
+    // (after `lead`, e.g. "#" for a puzzle number), the others sit under it as label + value.
     var head = columns.map(function (c) { return "<th class='" + (c[2] || "") + "'>" + esc(c[0]) + "</th>"; }).join("");
     var body = rows.map(function (row) {
       return "<tr>" + columns.map(function (c) {
         var cell = typeof c[1] === "function" ? c[1](row) : esc(row[c[1]]);
-        return "<td class='" + (c[2] || "") + "'>" + cell + "</td>";
+        return "<td class='" + (c[2] || "") + "' data-label='" + esc(c[0]) + "'" +
+          (c[3] ? " data-lead='" + esc(c[3]) + "'" : "") + ">" + cell + "</td>";
       }).join("") + "</tr>";
     }).join("");
-    return rows.length ? "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>"
+    return rows.length ? "<table class='stack'><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>"
                        : "<p class='small'>" + esc(empty || "No games yet.") + "</p>";
   }
   var expanded = {};  // long tables the owner opened all the way ("Show all")
@@ -398,7 +444,10 @@
                  "h" + (barW - 2 * r) + "q" + r + ",0 " + r + "," + r + "v" + (h - r) + "z";
       parts.push("<rect class='hit' data-i='" + i + "' x='" + (x - 1) + "' y='" + top + "' width='" + step +
                  "' height='" + (height - top - bottom) + "'/>" + (h > 0 ? "<path class='bar' d='" + path + "'/>" : ""));
-      if (i === 0 || i === data.length - 1 || (data.length > 14 && i % 7 === 0)) {
+      // Day labels: the first, the last, and one a week (every two weeks on a narrow screen), skipping
+      // any that would run into the last one's (on a phone "11-23" and "11-24" used to overlap).
+      var every = step * 7 < 48 ? 14 : 7, end = data.length - 1;
+      if (i === 0 || i === end || (data.length > 14 && i % every === 0 && (end - i) * step >= 44 && i * step >= 44)) {
         parts.push("<text class='axis' x='" + (x + barW / 2) + "' y='" + (height - 6) + "' text-anchor='middle'>" +
                    esc(String(d.day).slice(5)) + "</text>");
       }
@@ -406,7 +455,7 @@
     svg.setAttribute("viewBox", "0 0 " + width + " " + height);
     svg.innerHTML = parts.join("");
     svg.querySelectorAll(".hit").forEach(function (hit) {
-      hit.addEventListener("mouseenter", function () {
+      var showTip = function () {
         var d = data[Number(hit.dataset.i)];
         tip.innerHTML = "<b>" + esc(d.day) + "</b><br>" + d.players + " player" + (d.players === 1 ? "" : "s") +
           " · " + d.daily_wordle_games + " Wordle · " + d.daily_quordle_games + " Quordle · " + d.practice_games + " practice" +
@@ -415,7 +464,11 @@
         tip.style.left = (box.left - outer.left + box.width / 2) + "px";
         tip.style.top = (y(d.players) / height * outer.height) + "px";
         tip.style.display = "block";
-      });
+        var left = parseFloat(tip.style.left), half = tip.offsetWidth / 2;  // (kept inside the card on a phone)
+        tip.style.left = Math.max(half, Math.min(outer.width - half, left)) + "px";
+      };
+      hit.addEventListener("mouseenter", showTip);
+      hit.addEventListener("click", showTip);  // (a tap on a phone, which has no hover)
       hit.addEventListener("mouseleave", function () { tip.style.display = "none"; });
     });
     if (!data.length) svg.innerHTML = "<text class='axis' x='50%' y='50%' text-anchor='middle'>No games yet</text>";
@@ -456,11 +509,11 @@
       : "<p class='small'>Nobody has played yet.</p>";
 
     shortTable("daily", [
-      ["#", "daily", "num"], ["Game", function (r) { return modeName(r.mode); }], ["Date", "day"],
+      ["#", "daily", "num", "#"], ["Game", function (r) { return modeName(r.mode); }], ["Date", "day"],
       ["Answer", function (r) { return answer(r.answers, r.daily); }],
       ["Players", "players", "num"], ["Win %", function (r) { return num(r.win_percent, 1); }, "num"],
       ["Avg guesses", function (r) { return num(r.avg_guesses_to_win, 2); }, "num"],
-      ["Wins by guesses", function (r) { return distribution(r.guesses, r.mode); }],
+      ["Wins by guesses", function (r) { return distribution(r.guesses, r.mode); }, "wide"],
       ["Hinted %", function (r) { return num(r.hinted_percent, 1); }, "num"],
       ["Archive plays", "archive_plays", "num"]], s.daily_puzzles || [], 14, "No daily puzzles played yet.");
 
@@ -569,7 +622,7 @@
     ["Friends", "friends", null, "num opt"], ["Devices", "devices", null, "num opt"],
     ["Last active", "active", function (p) { return ago(active(p)); }],
     ["Joined", "created", function (p) { return ago(p.created); }, "opt"],
-    ["", null, function () { return "<span class='chev'>&rsaquo;</span>"; }]];
+    ["", null, function () { return "<span class='chev'>&rsaquo;</span>"; }, "chev-cell"]];
   function sortValue(p) {
     if (sortKey === "label") return label(p).toLowerCase();
     if (sortKey === "active") return active(p);
@@ -605,10 +658,10 @@
     }).join("");
     var body = rows.map(function (p) {
       return "<tr class='pick' data-player='" + esc(p.id) + "' title='Open " + esc(label(p)) + "'>" + PLAYER_COLUMNS.map(function (c) {
-        return "<td class='" + (c[3] || "") + "'>" + (c[2] ? c[2](p) : esc(num(p[c[1]]))) + "</td>";
+        return "<td class='" + (c[3] || "") + "' data-label='" + esc(c[0]) + "'>" + (c[2] ? c[2](p) : esc(num(p[c[1]]))) + "</td>";
       }).join("") + "</tr>";
     }).join("");
-    $("players").innerHTML = "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>";
+    $("players").innerHTML = "<table class='stack'><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>";
   }
 
   function renderDeletions(s) {
@@ -710,7 +763,7 @@
         return g.won ? "<span class='won'>Won in " + g.guesses.length + "</span>" : "<span class='lost'>Lost</span>";
       }],
       ["Answer", function (g) { return answer(g.answers, g.daily); }],
-      ["Guesses", function (g) { return hidden(guessList(g), g.daily); }],  // (the colours give the answer away)
+      ["Guesses", function (g) { return hidden(guessList(g), g.daily); }, "wide"],  // (the colours give the answer away)
       ["Hints", "hints", "num"],
       ["On the day", function (g) { return g.daily == null ? "" : puzzleNumber(g.played_on) === g.daily ? "yes" : "archive"; }],
       ["From", "site"]], games);
@@ -747,7 +800,7 @@
       "<section class='card'><h2>In progress</h2>" + ((d.progress.length || d.practice.length) ? table([
         ["Game", function (g) { return (g.mode === "w" ? "Wordle" : "Quordle") + (g.daily != null ? " #" + g.daily : " practice"); }],
         ["Answer", function (g) { return answer(g.answers, g.daily); }],
-        ["Guesses so far", function (g) { return guessList(g); }],
+        ["Guesses so far", function (g) { return guessList(g); }, "wide"],
         ["Started", function (g) { return when(g.started); }]], d.progress.concat(d.practice)) : "<p class='small'>Nothing unfinished.</p>") +
       "</section>" +
       "<section class='card'><h2>Friends (" + d.friends.length + ")</h2>" + (d.friends.length ? table([
@@ -765,7 +818,7 @@
             return g.won ? "<span class='won'>Won in " + g.guesses.length + "</span>" : "<span class='lost'>Lost</span>";
           }],
           ["Word", function (g) { return esc(g.answers[0].toUpperCase()); }],
-          ["Guesses", function (g) { return guessList(g); }],
+          ["Guesses", function (g) { return guessList(g); }, "wide"],
           ["Name in link", function (g) { return esc((g.custom && g.custom.from) || "–"); }]], d.made) + "</div>" :
           "<p class='small'>None yet.</p>") + "</section>" +
       "<section class='card'><h2>Every game (" + d.games.length + ")</h2><div class='scroll'>" + gameRows(d.games) + "</div></section>";
@@ -913,6 +966,10 @@
   });
   window.addEventListener("resize", function () { if (last) chart(last.players_per_day); });
   $("player-search").addEventListener("input", function () { renderPlayers(); searchServer(); });
+  $("player-sort").addEventListener("change", function () {
+    // (phones: the table's sortable headers are hidden there)
+    sortKey = this.value; sortUp = sortKey === "label"; renderPlayers();
+  });
   $("player-filter").addEventListener("click", function (event) {
     var b = event.target.closest("[data-filter]");
     if (!b) return;
@@ -924,6 +981,7 @@
     var th = event.target.closest("th[data-sort]");
     if (th) {
       if (sortKey === th.dataset.sort) sortUp = !sortUp; else { sortKey = th.dataset.sort; sortUp = sortKey === "label"; }
+      $("player-sort").value = sortKey;
       renderPlayers();
       return;
     }
