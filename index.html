@@ -762,17 +762,27 @@ function show_infobox() {
             function mono() { return window.performance && performance.now ? performance.now() : Date.now(); }
             // The page before this one: on screen at its last sign of life and gone without closing
             // normally (no pagehide), soon before this one opened: it was stuck, then reloaded or closed.
+            // (Nov 2026: players saw the home page ignore taps and nothing was logged. The record also says
+            // how long that page had been open, whether the game had drawn anything yet and when its last
+            // frame was, so a page stuck before or after the game started can be told apart.)
             var before = read(aliveKey), now = Date.now();
-            if (before && before.on && !before.closed && now - before.at < 5 * 60 * 1000) {
+            if (before && before.on && !before.closed && now - before.at < 30 * 60 * 1000) {
+                var drawn = before.frames > 0 ? before.frames + " frames, last " + (before.quiet || 0) + " s before its end" :
+                    "no frame drawn yet";
                 note("the page before this one stopped answering on screen (" + (before.stalled ?
-                     "no frames for " + before.stalled + " s" : "page blocked") + ", " +
+                     "no frames for " + before.stalled + " s" : "page blocked") + "; open " +
+                     (before.age != null ? before.age + " s" : "?") + ", " + drawn + "; " +
                      Math.round((now - before.at) / 1000) + " s before this load), then was reloaded or closed");
+            } else if (before && before.closed && !(before.frames > 0) && before.age >= 15 && now - before.at < 30 * 60 * 1000) {
+                note("the page before this one was closed or reloaded while still loading, after " + before.age + " s");
             }
             var start = mono(), beat = -1, beatAt = start, tick = start, wasOn = on(), stalled = false, taps = -1,
                 tapsAt = start, tapsNoted = -Infinity, touches = [];
             function alive(closed) {
                 write(aliveKey, { at: Date.now(), on: on(), closed: closed,
-                                  stalled: stalled ? Math.round((mono() - beatAt) / 1000) : 0 });
+                                  stalled: stalled ? Math.round((mono() - beatAt) / 1000) : 0,
+                                  age: Math.round(mono() / 1000), frames: window.wordleBeat || 0,
+                                  quiet: Math.round((mono() - beatAt) / 1000) });
             }
             document.addEventListener("touchstart", function (event) {
                 if (event.target && event.target.tagName === "CANVAS") touches.push(mono());  // (taps on the game)
