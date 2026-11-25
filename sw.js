@@ -22,7 +22,8 @@ const META = PREFIX + "meta";        // which release is saved
 const RUNTIME = PREFIX + "runtime";  // pygbag's runtime and packages
 const RUNTIME_HOSTS = ["pygame-web.github.io"];
 const CHECK_TIMEOUT = 1500;  // ms to wait for version.json before using the saved copy
-const INSTALL_TIMEOUT = 30000;
+const LAUNCH_WAIT = 2500;  // ms a launch waits for a new release before opening the saved one
+const INSTALL_TIMEOUT = 60000;  // (in the background, so a slow phone connection can still finish)
 
 const here = (file) => new URL(file, self.registration.scope).href;
 const ACTIVE_KEY = here("sw-meta/active");
@@ -39,11 +40,16 @@ self.addEventListener("fetch", (event) => {
     const url = new URL(request.url);
     if (request.mode === "navigate") {
         if (url.origin === location.origin && (url.pathname === SCOPE || url.pathname === SCOPE + "index.html")) {
-            event.respondWith(launch().then((page) => page || fetch(request)).catch(() => fetch(request)));
+            // The check (and download of a new release) carries on after the page is served: the
+            // worker stays alive for it (waitUntil), and the next launch runs the new release.
+            const updating = update(CHECK_TIMEOUT).catch(() => null);
+            event.waitUntil(updating);
+            event.respondWith(launch(updating, event.resultingClientId).then((page) => page || fetch(request))
+                .catch(() => fetch(request)));
         }
         return;
     }
-    event.respondWith(resource(request, url).catch(() => fetch(request)));
+    event.respondWith(resource(request, url, event.clientId).catch(() => fetch(request)));
 });
 
 // The page sends what it downloaded on the first visit (before this worker could see it).
@@ -61,20 +67,46 @@ async function readActive() {
     return saved ? saved.json() : null;
 }
 
-// The page for this launch: the newest release we can get, else the saved one, else null.
-async function launch() {
-    const active = (await update(CHECK_TIMEOUT)) || (await readActive());
-    if (!active) return null;
-    return (await caches.open(PREFIX + active.version)).match(here("index.html"));
+// The page for this launch: the newest release if it's saved within LAUNCH_WAIT, else the saved one
+// (the new one finishes downloading in the background, for the next launch), else null (the network).
+// Until Nov 2026 a launch waited for the whole new release (up to INSTALL_TIMEOUT, 30 s): on a slow
+// phone connection the first open after every release sat on a frozen screen, and reopening worked
+// because the download had finished by then.
+async function launch(updating, client) {
+    const saved = await readActive();
+    const wait = new Promise((done) => setTimeout(() => done(saved), LAUNCH_WAIT));
+    const active = (await Promise.race([updating.then((release) => release || saved), wait])) || saved;
+    for (const release of active === saved ? [saved] : [active, saved]) {
+        if (!release) continue;
+        const page = await (await caches.open(PREFIX + release.version)).match(here("index.html"));
+        if (page) {
+            if (client) {
+                pages.set(client, release);
+                if (pages.size > 50) pages.delete(pages.keys().next().value);  // (the oldest)
+            }
+            return page;
+        }
+    }
+    return null;
 }
+
+// Which release each open page was served from (by client id), so its files come from that same
+// release even if a newer one finishes downloading while it loads. Lost if the browser stops the
+// worker; then the saved release is used, as before.
+const pages = new Map();
 
 // Save the latest release if it's new. Returns the release now saved (null if none is).
 async function update(timeout) {
     const active = await readActive();
     const latest = await latestVersion(timeout);
     if (!latest || (active && latest.version === active.version)) return active;
-    return (await install(latest)) ? latest : active;
+    if (!installing.has(latest.version)) {  // (one download per release, however many launches ask)
+        installing.set(latest.version, install(latest).finally(() => installing.delete(latest.version)));
+    }
+    return (await installing.get(latest.version)) ? latest : active;
 }
+
+const installing = new Map();  // release version -> its download in progress
 
 async function latestVersion(timeout) {
     if (self.navigator && self.navigator.onLine === false) return null;
@@ -109,9 +141,13 @@ async function install(release) {
         for (const [file, body, type] of files) {
             await cache.put(here(file), new Response(body, { headers: { "Content-Type": type } }));
         }
+        // Older releases of this site only, but keep the one that was saved until now: a page opened
+        // from it a moment ago (while this downloaded in the background) may still be loading its files.
+        const previous = await readActive();
+        const kept = previous ? PREFIX + previous.version : name;
         await (await caches.open(META)).put(ACTIVE_KEY, new Response(JSON.stringify(release)));
-        for (const key of await caches.keys()) {  // older releases of this site only
-            if (key.startsWith(PREFIX) && key !== name && key !== META && key !== RUNTIME) await caches.delete(key);
+        for (const key of await caches.keys()) {
+            if (key.startsWith(PREFIX) && key !== name && key !== kept && key !== META && key !== RUNTIME) await caches.delete(key);
         }
         return true;
     } catch (e) {
@@ -128,10 +164,10 @@ async function sha256(buffer) {
     return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function resource(request, url) {
+async function resource(request, url, client) {
     if (url.origin === location.origin && url.pathname.startsWith(SCOPE)) {
         const file = url.pathname.slice(SCOPE.length);
-        const active = await readActive();
+        const active = (client && pages.get(client)) || (await readActive());
         if (active && file in active.files) {
             const saved = await (await caches.open(PREFIX + active.version)).match(here(file));
             if (saved) return saved;
