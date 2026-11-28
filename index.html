@@ -1277,10 +1277,12 @@ height="720px"
          picture of the game's last screen (the home page) all that time: players tapped a home page that
          wasn't there yet and called it frozen. A big icon and title make the page count as drawn at once.
          Under the canvas (z-index), which covers it from the game's first frame; removed then too. -->
-    <div id="wordle-splash" style="position:fixed;inset:0;z-index:4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:#151924;color:#eceff4;font:bold 28px -apple-system,Helvetica,sans-serif;padding-bottom:140px">
-        <img src="favicon.png?v=2" width="128" height="128" alt="" style="border-radius:28px">
-        <div>Wordle &amp; Quordle</div>
-        <div style="font-size:15px;font-weight:normal;color:#a3abc2">Loading, just a few seconds...</div>
+    <div id="wordle-splash" style="position:fixed;inset:0;z-index:4;background:#151924">
+        <!-- (icon and title just above the middle, where #infobox shows the loading line) -->
+        <div style="position:absolute;left:0;right:0;bottom:calc(50% + 44px);display:flex;flex-direction:column;align-items:center;gap:16px;color:#eceff4;font:bold 28px -apple-system,Helvetica,sans-serif">
+            <img src="favicon.png?v=2" width="128" height="128" alt="" style="border-radius:28px">
+            <div>Wordle &amp; Quordle</div>
+        </div>
     </div>
 
     <div id="infobox">Alex is shuffling the letter tiles...</div>
