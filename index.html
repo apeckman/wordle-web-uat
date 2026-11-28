@@ -94,10 +94,6 @@ async def custom_site():
     # your main.py has an infinite sync loop somewhere !
 
     platform.window.infobox.style.display = "none"
-    try:
-        platform.window.wordleSplashDone()
-    except Exception:
-        pass
     platform.window.config.gui_divider = 1
     platform.window.window_resize()
     print("default.tmpl: done")
@@ -742,20 +738,6 @@ function show_infobox() {
             return JSON.stringify(out);
         };
 
-        // The loading screen goes once the game has drawn (gui.py watch, or pygbag done; see #wordle-splash).
-        window.wordleSplashDone = function () {
-            var splash = document.getElementById("wordle-splash");
-            if (splash) splash.remove();
-        };
-        // Taps before the game's first frame (they can't do anything yet): told with the "started" note.
-        window.wordleLoadingTaps = 0;
-        document.addEventListener("touchstart", function () {
-            if (!window.wordleBeat) window.wordleLoadingTaps++;
-        }, { capture: true, passive: true });
-        document.addEventListener("mousedown", function () {
-            if (!window.wordleBeat) window.wordleLoadingTaps++;
-        }, true);
-
         window.wordleBeat = 0;  // gui.py watch(): the game's frame count and the taps it got, every half second
         window.wordleTaps = 0;
         (function () {
@@ -1271,17 +1253,6 @@ width="1280px"
 height="720px"
     oncontextmenu="event.preventDefault()" tabindex=1 hidden>
     </canvas>
-
-    <!-- The loading screen (Nov 2026). The game takes ~12 s to start on an iPhone, and a page with only a
-         dark background and one line of text doesn't count as "drawn" for Safari, so iOS kept showing its
-         picture of the game's last screen (the home page) all that time: players tapped a home page that
-         wasn't there yet and called it frozen. A big icon and title make the page count as drawn at once.
-         Under the canvas (z-index), which covers it from the game's first frame; removed then too. -->
-    <div id="wordle-splash" style="position:fixed;inset:0;z-index:4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:#151924;color:#eceff4;font:bold 28px -apple-system,Helvetica,sans-serif;padding-bottom:140px">
-        <img src="favicon.png?v=2" width="128" height="128" alt="" style="border-radius:28px">
-        <div>Wordle &amp; Quordle</div>
-        <div style="font-size:15px;font-weight:normal;color:#a3abc2">Loading, just a few seconds...</div>
-    </div>
 
     <div id="infobox">Alex is shuffling the letter tiles...</div>
 
