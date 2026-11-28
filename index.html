@@ -761,7 +761,16 @@ function show_infobox() {
         (function () {
             var notesKey = "wordle " + location.pathname + " watch", aliveKey = notesKey + " alive";
             function read(key) { try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (e) { return null; } }
-            function write(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
+            var slowWrite = 0;  // (ms) a localStorage write that held up the page (the freeze hunt)
+            function write(key, value) {
+                var start = mono();
+                try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+                var took = mono() - start;
+                if (took > 2000 && !slowWrite) {
+                    slowWrite = took;
+                    note("a localStorage write held up the page for " + Math.round(took / 1000) + " s");
+                }
+            }
             function note(text) {
                 var notes = read(notesKey);
                 notes = Array.isArray(notes) ? notes : [];
