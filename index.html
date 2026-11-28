@@ -777,6 +777,7 @@ function show_infobox() {
                 notes.push(new Date().toISOString().slice(11, 19) + " " + text);
                 write(notesKey, notes.slice(-10));
             }
+            window.wordleWatchNote = note;  // (for the self-heal below)
             window.wordleWatchTake = function () {
                 var notes = read(notesKey);
                 try { localStorage.removeItem(notesKey); } catch (e) {}
@@ -928,6 +929,76 @@ function show_infobox() {
                 monoAt = now;
                 shownAt = on();
             }, 1000);
+        })();
+
+        // Self-heal (Nov 2026): Alex's iPhone stopped the game a few seconds after it started, until the app
+        // was hidden and shown again, which restarts the browser's animation frames and with them pygbag's
+        // loop (each game frame runs from one). So when the game draws nothing for 2 s while the page is on
+        // screen, do here what hiding and showing does: re-arm pygbag's loop (its pause + resume ask for a
+        // fresh frame, and the old one, if it ever comes, is ignored) and from then on back every animation
+        // frame with a 50 ms timer, so a browser that stops giving frames can't stop the game. Checked
+        // every half second and on every tap (taps made meanwhile wait in SDL's queue and act once frames
+        // come back). The watchdog's log says each time it happened and whether it worked. It can't help
+        // if iPhone stops the whole page, timers and taps included: the freeze trace above says which.
+        // ?noheal=1 turns it off, to show a simulated stall staying stuck.
+        (function () {
+            var off = /[?&]noheal=1(&|$)/.test(location.search), beat = -1, beatAt = 0, healAt = -Infinity,
+                heals = 0, backed = false, waiting = null;
+            function now() { return window.performance && performance.now ? performance.now() : Date.now(); }
+            function on() { return document.visibilityState === "visible" && !window.wordleInactive; }
+            function say(text) { try { window.wordleWatchNote(text); } catch (e) {} }
+            function backFrames() {  // (every animation frame also arrives by a timer, whichever is first)
+                if (backed) return;
+                backed = true;
+                var inner = window.requestAnimationFrame.bind(window);
+                window.requestAnimationFrame = function (callback) {
+                    var done = false;
+                    function once(t) { if (!done) { done = true; callback(t); } }
+                    var id = inner(once);
+                    setTimeout(function () { once(now()); }, 50);
+                    return id;
+                };
+            }
+            function check(how) {
+                var t = now();
+                if (window.wordleBeat !== beat || !on()) {
+                    if (waiting && window.wordleBeat !== beat) {
+                        say("self-heal worked: game frames came back " + Math.round(t - waiting.at) + " ms after " +
+                            waiting.what + " (no frame for " + (waiting.stalled / 1000).toFixed(1) + " s on screen, found by " + waiting.how + ")");
+                        waiting = null;
+                    }
+                    beat = window.wordleBeat;
+                    beatAt = t;
+                    return;
+                }
+                if (off || !(beat > 0) || t - beatAt < 2000 || t - healAt < 3000 || heals >= 20) return;
+                healAt = t;
+                heals++;
+                var did = [];
+                backFrames();
+                did.push("backing frames with a timer");
+                try {
+                    var py = window.python;
+                    if (py && typeof py.pauseMainLoop === "function" && typeof py.resumeMainLoop === "function") {
+                        py.pauseMainLoop();
+                        py.resumeMainLoop();
+                        did.push("re-arming the loop");
+                    }
+                } catch (e) { did.push("re-arming failed: " + e.message); }
+                waiting = {at: t, stalled: t - beatAt, how: how, what: did.join(" and ")};
+                setTimeout(function () {
+                    if (waiting && waiting.at === t) {
+                        say("self-heal didn't help: no game frame " + Math.round((now() - t) / 1000) + " s after " +
+                            waiting.what + " (stalled " + (waiting.stalled / 1000).toFixed(1) + " s on screen, found by " + how + ")");
+                        waiting = null;
+                    }
+                }, 3000);
+            }
+            setInterval(function () { check("timer"); }, 500);
+            document.addEventListener("touchstart", function () { check("a tap"); }, { capture: true, passive: true });
+            document.addEventListener("mousedown", function () { check("a click"); }, true);
+            document.addEventListener("visibilitychange", function () { beatAt = now(); });
+            window.addEventListener("pageshow", function () { beatAt = now(); });
         })();
 
         // New releases while the page is open: a tab or home-screen app left open keeps running the
