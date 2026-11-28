@@ -843,6 +843,82 @@ function show_infobox() {
                 tick = now;
                 alive(false);
             }, 1000);
+
+            // The freeze hunt (Nov 2026): on Alex's iPhone the whole page stopped a few seconds after the
+            // game started (no game frames, no timers, so none of the notes above) until the app was
+            // hidden and shown again. Once the page runs again, this notes how long nothing ran while it
+            // was on screen, the taps made meanwhile (a tap's time is when the finger touched, so a tap
+            // handled seconds late means the page was stopped, not ignoring it), the page's last events
+            // and the game's last tap. Also: the browser no longer giving animation frames while the
+            // page is on screen and its timers run. gui.py note_slow_frame notes the game's side.
+            var events = [], recentTaps = [], wallAt = Date.now(), monoAt = mono(), shownAt = on(),
+                hiddenAt = 0, raf = 0, rafSeen = 0, rafAt = mono(), rafNoted = false;
+            window.wordleShownAt = 0;  // (page clock, ms) the page was last hidden or shown (note_slow_frame)
+            function clock(ms) { return new Date(ms).toISOString().slice(11, 19); }
+            function lateness(event) {  // how long ago the browser made this event (its timeStamp: page clock, ms)
+                var t = event && event.timeStamp;
+                return t > 0 && t < 1e12 ? Math.max(0, mono() - t) : 0;
+            }
+            function seen(what, event) {
+                var late = lateness(event);
+                events.push(clock(Date.now() - late) + " " + what + (late >= 2000 ? " (handled " + Math.round(late / 1000) + " s late)" : ""));
+                events = events.slice(-8);
+            }
+            function shown(event) {
+                window.wordleShownAt = mono();
+                if (event.type === "pagehide" || document.visibilityState !== "visible") hiddenAt = Date.now();
+                seen(event.type === "visibilitychange" ? document.visibilityState :
+                     event.type + (event.persisted ? " (from cache)" : ""), event);
+            }
+            document.addEventListener("visibilitychange", shown);
+            window.addEventListener("pageshow", shown);
+            window.addEventListener("pagehide", shown);
+            ["focus", "blur", "online", "offline"].forEach(function (name) {
+                window.addEventListener(name, function (event) { seen(name, event); });
+            });
+            ["freeze", "resume"].forEach(function (name) {  // (Chrome's page lifecycle; Safari has none)
+                document.addEventListener(name, function (event) { seen(name, event); });
+            });
+            document.addEventListener("touchstart", function (event) {
+                var late = lateness(event);
+                recentTaps.push({at: Date.now() - late, late: late});
+                recentTaps = recentTaps.slice(-30);
+                if (late >= 2000) seen("tap", event);
+            }, { capture: true, passive: true });
+            (function counted() { raf++; requestAnimationFrame(counted); })();
+            setInterval(function () {
+                var wall = Date.now(), now = mono();
+                // Nothing ran for 4+ s by the page's own clock (which stops while the device sleeps), and the
+                // page was on screen when it stopped: unless it was hidden promptly (the usual way timers
+                // stop), it stopped on screen until it was hidden (the hidden event then comes late) or now.
+                // Taps and events the browser held meanwhile come just after this timer: wait for them.
+                if (now - monoAt > 4000 && shownAt) {
+                    var from = wallAt, ranOn = on();
+                    setTimeout(function () {
+                        if (hiddenAt > from && hiddenAt - from < 3000) return;  // (hidden at once: as usual)
+                        var hid = hiddenAt > from && hiddenAt <= wall + 2000, until = hid ? hiddenAt : wall;
+                        var taps = recentTaps.filter(function (t) { return t.at > from && t.at <= wall; });
+                        var late = taps.filter(function (t) { return t.late >= 2000; }).length;
+                        note("the whole page stopped on screen for " + Math.round((until - from) / 1000) + " s from " +
+                             clock(from) + (hid ? " until it was hidden" : "") + " (ran again " + clock(wall) +
+                             (ranOn ? " on screen" : " hidden") + "; game frames " + (window.wordleBeat || 0) + "; " +
+                             taps.length + " taps meanwhile, " + late + " handled 2+ s late; last game tap: " +
+                             (window.wordleLastTap || "none") + "; events: " + (events.join(", ") || "none") + ")");
+                    }, 1500);
+                }
+                if (raf !== rafSeen || !on()) {
+                    rafSeen = raf;
+                    rafAt = now;
+                    rafNoted = false;
+                } else if (!rafNoted && now - rafAt > 4000 && now - monoAt < 2000) {
+                    rafNoted = true;
+                    note("the browser gave no animation frames for 4 s while on screen, its timers running (game frames " +
+                         (window.wordleBeat || 0) + "; last game tap: " + (window.wordleLastTap || "none") + ")");
+                }
+                wallAt = wall;
+                monoAt = now;
+                shownAt = on();
+            }, 1000);
         })();
 
         // New releases while the page is open: a tab or home-screen app left open keeps running the
